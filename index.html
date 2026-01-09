@@ -4,17 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>12 Beauty Studio</title>
-    <!-- 引入 Tailwind CSS (樣式) -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- 引入 React 核心 (UMD 版本，保證本地可執行) -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <!-- 引入 Babel 解析器 -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    
     <style>
         body { -webkit-tap-highlight-color: transparent; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-        input, textarea, select { font-size: 16px !important; } /* 防止 iOS 縮放 */
+        input, textarea, select { font-size: 16px !important; }
         ::-webkit-scrollbar { width: 0px; background: transparent; }
     </style>
 </head>
@@ -24,14 +20,12 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
-        // --- 內建圖示庫 (解決外部載入報錯問題) ---
+        // --- 內建圖示庫 ---
         const Icon = ({ d, children, size = 24, className = "", ...props }) => (
             <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>
                 {d ? <path d={d} /> : children}
             </svg>
         );
-
-        // 定義所有用到的圖示
         const Plus = (p) => <Icon d="M5 12h14M12 5v14" {...p} />;
         const CalendarIcon = (p) => <Icon d="M19 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM16 2v4M8 2v4M3 10h18" {...p} />;
         const Search = (p) => <Icon d="m21 21-4.3-4.3M11 17a6 6 0 1 0 0-12 6 6 0 0 0 0 12z" {...p} />;
@@ -57,7 +51,6 @@
         const Upload = (p) => <Icon d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" {...p} />;
         const Edit2 = (p) => <Icon d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" {...p} />;
 
-        // --- 主題設定 ---
         const THEME = {
             primary: "bg-[#bc6c7e] hover:bg-[#a85e6f] text-white",
             primaryLight: "bg-[#f4e3e6]",
@@ -73,39 +66,31 @@
             { id: 'noshow', label: '放鳥', color: 'bg-stone-100 text-stone-500', icon: XCircle },
         ];
 
-        // --- 主應用程式 ---
         function App() {
-            // 從 LocalStorage 讀取資料
+            // LocalStorage Logic
             const [records, setRecords] = useState(() => {
                 try {
                     const saved = localStorage.getItem('beauty_app_data_v3');
                     return saved ? JSON.parse(saved) : [];
-                } catch (e) {
-                    return [];
-                }
+                } catch (e) { return []; }
             });
 
             const [loading, setLoading] = useState(true);
             const [tab, setTab] = useState('calendar'); 
             const [modal, setModal] = useState({ type: null, data: null });
             
+            // Edit Mode State
+            const [formData, setFormData] = useState({});
+            
             const [date, setDate] = useState(new Date());
             const [selDate, setSelDate] = useState(null); 
             const [search, setSearch] = useState('');
-            
             const fileRef = useRef(null);
 
-            // 模擬載入動畫
-            useEffect(() => {
-                setTimeout(() => setLoading(false), 300);
-            }, []);
+            useEffect(() => { setTimeout(() => setLoading(false), 300); }, []);
+            useEffect(() => { localStorage.setItem('beauty_app_data_v3', JSON.stringify(records)); }, [records]);
 
-            // 自動存檔
-            useEffect(() => {
-                localStorage.setItem('beauty_app_data_v3', JSON.stringify(records));
-            }, [records]);
-
-            // [邏輯] 月曆資料
+            // Logic: Calendar
             const calendarData = useMemo(() => {
                 const y = date.getFullYear(), m = date.getMonth();
                 const days = Array(new Date(y, m, 1).getDay()).fill(null);
@@ -119,7 +104,7 @@
 
             const selDayDetails = useMemo(() => selDate ? (calendarData.find(d => d && d.date === selDate) || { date: selDate, items: [] }) : null, [selDate, calendarData]);
 
-            // [邏輯] 客戶名單
+            // Logic: Customers
             const customers = useMemo(() => {
                 const map = {};
                 records.forEach(r => {
@@ -135,7 +120,7 @@
                 return Object.values(map).filter(c => c.name.includes(search) || c.phone.includes(search));
             }, [records, search]);
 
-            // [邏輯] 財務
+            // Logic: Stats
             const stats = useMemo(() => {
                 const prefix = date.toISOString().slice(0, 7);
                 const monthRecs = records.filter(r => r.date.startsWith(prefix));
@@ -146,39 +131,56 @@
                 return { income, expense, projected, balance: income - expense, list: monthRecs };
             }, [records, date]);
 
-            // [操作] 儲存
-            const saveRecord = (e) => {
+            // --- Handlers ---
+            const handleSave = (e) => {
                 e.preventDefault();
-                const fd = new FormData(e.target);
-                const raw = Object.fromEntries(fd);
                 const isEdit = modal.type === 'edit';
-                setModal({ type: null });
-
+                
+                // Construct Data Directly from State
                 const docData = {
                     id: isEdit ? modal.data.id : Date.now().toString(),
-                    type: raw.type, date: raw.date, time: raw.time || '',
-                    amount: Number(raw.amount), deposit: Number(raw.deposit || 0),
-                    name: raw.name || '', phone: raw.phone || '', serviceItem: raw.serviceItem || '',
-                    expenseItem: raw.expenseItem || '', status: raw.status || 'booked',
-                    eyeShape: raw.eyeShape || '', createdAt: new Date().toISOString()
+                    type: formData.type,
+                    date: formData.date,
+                    time: formData.time || '',
+                    amount: Number(formData.amount || 0),
+                    deposit: formData.type === 'income' ? Number(formData.deposit || 0) : 0,
+                    name: formData.type === 'income' ? formData.name : '',
+                    phone: formData.type === 'income' ? formData.phone : '',
+                    serviceItem: formData.type === 'income' ? formData.serviceItem : '',
+                    eyeShape: formData.type === 'income' ? formData.eyeShape : '',
+                    status: formData.type === 'income' ? (formData.status || 'booked') : '',
+                    expenseItem: formData.type === 'expense' ? formData.expenseItem : '',
+                    createdAt: new Date().toISOString()
                 };
 
                 setRecords(prev => isEdit ? prev.map(r => r.id === docData.id ? docData : r) : [...prev, docData]);
+                setModal({ type: null });
+            };
+
+            const openAdd = () => {
+                setFormData({
+                    type: 'income', date: new Date().toISOString().split('T')[0], time: '10:00',
+                    amount: '', deposit: '', name: '', phone: '', serviceItem: '', eyeShape: '',
+                    status: 'booked', expenseItem: ''
+                });
+                setModal({ type: 'add' });
+            };
+
+            const openEdit = (item) => {
+                setFormData({ ...item });
+                setModal({ type: 'edit', data: item });
             };
 
             const doDelete = () => {
-                const id = modal.data.id;
-                setRecords(p => p.filter(r => r.id !== id));
+                setRecords(p => p.filter(r => r.id !== modal.data.id));
                 setModal({ type: null });
             };
 
             const doComplete = () => {
-                const id = modal.data.id;
-                setRecords(p => p.map(r => r.id === id ? { ...r, status: 'normal' } : r));
+                setRecords(p => p.map(r => r.id === modal.data.id ? { ...r, status: 'normal' } : r));
                 setModal({ type: null });
             };
 
-            // [匯出匯入]
             const handleExport = () => {
                 const link = document.createElement('a');
                 link.href = URL.createObjectURL(new Blob([JSON.stringify(records, null, 2)], {type:'application/json'}));
@@ -193,16 +195,14 @@
                 reader.onload = (ev) => {
                     try {
                         const arr = JSON.parse(ev.target.result);
-                        if(Array.isArray(arr)){
-                            if(confirm(`匯入將覆蓋相同 ID 的資料，並新增 ${arr.length} 筆記錄，確定嗎？`)){
-                                const ids = new Set(records.map(r => r.id));
-                                const newRecs = [...records];
-                                arr.forEach(item => { if(!ids.has(item.id)) newRecs.push(item); });
-                                setRecords(newRecs);
-                                alert("匯入成功！");
-                                setModal({type:null});
-                            }
-                        } else { alert("檔案格式錯誤"); }
+                        if(Array.isArray(arr) && confirm(`確定匯入 ${arr.length} 筆資料嗎？`)){
+                            const ids = new Set(records.map(r => r.id));
+                            const newRecs = [...records];
+                            arr.forEach(item => { if(!ids.has(item.id)) newRecs.push(item); });
+                            setRecords(newRecs);
+                            alert("匯入成功！");
+                            setModal({type:null});
+                        }
                     } catch { alert("讀取失敗"); }
                 };
                 reader.readAsText(f);
@@ -214,8 +214,7 @@
                 setDate(d); setSelDate(null);
             };
 
-            // --- 介面 ---
-            if (loading) return <div className="h-screen flex items-center justify-center text-rose-300 font-bold text-lg"><Loader2 className="animate-spin mr-2"/> 載入中...</div>;
+            if (loading) return <div className="h-screen flex items-center justify-center text-rose-300 font-bold"><Loader2 className="animate-spin mr-2"/> 載入中...</div>;
 
             return (
                 <div className={`min-h-screen ${THEME.bg} pb-24`}>
@@ -227,13 +226,12 @@
                         </div>
                         <div className="flex gap-2">
                             <button onClick={() => setModal({ type: 'settings' })} className="p-2 text-rose-300 hover:bg-rose-50 rounded-full"><Settings size={20}/></button>
-                            <button onClick={() => setModal({ type: 'add' })} className={`${THEME.primary} px-3 py-1.5 rounded-full text-sm font-bold flex items-center gap-1 shadow-md active:scale-95 transition-transform`}><Plus size={16}/> 預約</button>
+                            <button onClick={openAdd} className={`${THEME.primary} px-3 py-1.5 rounded-full text-sm font-bold flex items-center gap-1 shadow-md active:scale-95 transition-transform`}><Plus size={16}/> 預約</button>
                         </div>
                     </div>
 
                     <div className="max-w-md mx-auto p-4 space-y-4">
-                        
-                        {/* 月曆 */}
+                        {/* TAB: Calendar */}
                         {tab === 'calendar' && (
                             <div className="animate-fadeIn space-y-4">
                                 <div className="flex justify-between items-center bg-white p-3 rounded-2xl shadow-sm border border-rose-100">
@@ -278,7 +276,7 @@
                                                     {it.type==='income' && it.deposit>0 && <p className="text-[10px] text-gray-400">餘: ${it.amount-it.deposit}</p>}
                                                     <div className="flex justify-end gap-2">
                                                         {it.status==='booked'&&it.type==='income'&&<button onClick={()=>setModal({type:'confirm',data:it})} className="text-emerald-500"><CheckCircle size={16}/></button>}
-                                                        <button onClick={()=>setModal({type:'edit',data:it})} className="text-rose-300"><Edit2 size={14}/></button>
+                                                        <button onClick={()=>openEdit(it)} className="text-rose-300"><Edit2 size={14}/></button>
                                                         <button onClick={()=>setModal({type:'delete',data:it})} className="text-rose-200"><Trash2 size={14}/></button>
                                                     </div>
                                                 </div>
@@ -289,7 +287,7 @@
                             </div>
                         )}
 
-                        {/* 客戶名單 */}
+                        {/* TAB: Customers */}
                         {tab === 'customers' && (
                             <div className="animate-fadeIn space-y-4">
                                 <div className="relative"><Search className="absolute left-3 top-2.5 text-rose-300" size={18}/><input type="text" placeholder="搜尋..." value={search} onChange={e=>setSearch(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-white border border-rose-200 rounded-xl outline-none focus:ring-2 focus:ring-rose-300"/></div>
@@ -315,7 +313,7 @@
                                                             {h.deposit>0 && <div className="text-orange-500 mt-1 flex gap-1"><Coins size={10}/> 訂 ${h.deposit} (餘 ${h.amount-h.deposit})</div>}
                                                             {h.eyeShape && <div className="mt-1 pt-1 border-t border-rose-50 text-gray-400 flex gap-1"><Eye size={10}/> {h.eyeShape}</div>}
                                                             <div className="flex justify-end gap-2 mt-2 border-t border-gray-50 pt-1">
-                                                                <button onClick={()=>setModal({type:'edit',data:h})} className="text-rose-300"><Edit2 size={12}/></button>
+                                                                <button onClick={()=>openEdit(h)} className="text-rose-300"><Edit2 size={12}/></button>
                                                                 <button onClick={()=>setModal({type:'delete',data:h})} className="text-rose-200"><Trash2 size={12}/></button>
                                                             </div>
                                                         </div>
@@ -328,7 +326,7 @@
                             </div>
                         )}
 
-                        {/* 財務 */}
+                        {/* TAB: Finance */}
                         {tab === 'finance' && (
                             <div className="animate-fadeIn space-y-4">
                                 <div className="flex justify-between items-center bg-white p-3 rounded-2xl shadow-sm border border-rose-100">
@@ -336,7 +334,6 @@
                                     <div className="text-center"><p className="text-xs text-rose-400">財務報表</p><h2 className="text-lg font-bold text-[#8a4a58]">{date.getFullYear()} / {date.getMonth()+1}</h2></div>
                                     <button onClick={() => handleMonthChange(1)} className="p-2 text-rose-400"><ChevronRight/></button>
                                 </div>
-                                {stats.projected > 0 && <div className="bg-blue-50 text-blue-600 p-3 rounded-2xl border border-blue-100 flex justify-between font-bold shadow-sm"><span className="flex items-center gap-1 text-sm"><CalendarClock size={16}/> 預估 (預約)</span><span>${stats.projected.toLocaleString()}</span></div>}
                                 <div className="grid grid-cols-2 gap-3">
                                     <div className="bg-white p-4 rounded-2xl border-l-4 border-emerald-400 shadow-sm"><p className="text-xs text-gray-400">本月實收</p><p className="text-xl font-bold text-emerald-600">${stats.income.toLocaleString()}</p></div>
                                     <div className="bg-white p-4 rounded-2xl border-l-4 border-rose-400 shadow-sm"><p className="text-xs text-gray-400">本月總支出</p><p className="text-xl font-bold text-rose-500">${stats.expense.toLocaleString()}</p></div>
@@ -345,14 +342,19 @@
                                 <div className="bg-white rounded-2xl shadow-sm border border-rose-100 p-2 space-y-2">
                                     {stats.list.map(l => (
                                         <div key={l.id} className="flex justify-between items-center p-2 border-b border-rose-50 last:border-0 text-sm">
-                                            <div className="flex gap-3 items-center"><span className="text-rose-300 w-10 text-xs">{l.date.slice(5)}</span><div><p className="font-bold text-gray-700">{l.type==='income'?l.name:l.expenseItem}</p><p className="text-xs text-gray-400">{l.status==='booked'?'預約中':l.status==='noshow'?'已放鳥':''}</p></div></div>
+                                            <div className="flex gap-3 items-center"><span className="text-rose-300 w-10 text-xs">{l.date.slice(5)}</span><div><p className="font-bold text-gray-700">{l.type==='income'?l.name:l.expenseItem}</p></div></div>
                                             <div className="flex items-center gap-2">
                                                 <span className={`font-bold ${l.type==='income'?'text-emerald-600':'text-rose-500'}`}>{l.type==='income'?'+':'-'}${l.amount}</span>
-                                                <button onClick={()=>setModal({type:'edit',data:l})} className="text-rose-300"><Edit2 size={12}/></button>
+                                                <button onClick={()=>openEdit(l)} className="text-rose-300"><Edit2 size={12}/></button>
                                                 <button onClick={()=>setModal({type:'delete',data:l})} className="text-rose-200"><Trash2 size={12}/></button>
                                             </div>
                                         </div>
                                     ))}
+                                    {/* 新增總計欄位 */}
+                                    <div className="p-3 border-t-2 border-rose-100 flex justify-between items-center font-bold text-[#8a4a58] mt-2">
+                                        <span>本月總計</span>
+                                        <span className={stats.balance >= 0 ? 'text-emerald-600' : 'text-rose-500'}>${stats.balance.toLocaleString()}</span>
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -365,78 +367,51 @@
                         ))}
                     </div>
 
-                    {/* 彈出視窗：新增/編輯 */}
+                    {/* --- Modals --- */}
                     {(modal.type === 'add' || modal.type === 'edit') && (
                         <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fadeIn backdrop-blur-sm">
                             <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl max-h-[95vh] overflow-y-auto shadow-2xl p-5 space-y-4">
                                 <div className="flex justify-between items-center"><h2 className="font-bold text-lg text-[#8a4a58]">{modal.type==='add'?'新增':'編輯'}</h2><button onClick={()=>setModal({type:null})}><X className="text-rose-300"/></button></div>
-                                <form onSubmit={saveRecord} className="space-y-4">
+                                <form onSubmit={handleSave} className="space-y-4">
                                     <div className="bg-rose-50 p-1 rounded-xl flex">
-                                        <label className="flex-1 cursor-pointer">
-                                            <input type="radio" name="type" value="income" className="peer hidden" defaultChecked={!modal.data || modal.data.type==='income'}/>
-                                            <div className="py-2 text-center text-sm font-bold text-rose-300 rounded-lg peer-checked:bg-white peer-checked:text-[#bc6c7e] peer-checked:shadow-sm transition-all" onClick={()=>document.querySelectorAll('.income-field').forEach(e=>e.style.display='block') || document.querySelectorAll('.expense-field').forEach(e=>e.style.display='none')}>客戶服務</div>
-                                        </label>
-                                        <label className="flex-1 cursor-pointer">
-                                            <input type="radio" name="type" value="expense" className="peer hidden" defaultChecked={modal.data?.type==='expense'}/>
-                                            <div className="py-2 text-center text-sm font-bold text-rose-300 rounded-lg peer-checked:bg-white peer-checked:text-[#bc6c7e] peer-checked:shadow-sm transition-all" onClick={()=>document.querySelectorAll('.income-field').forEach(e=>e.style.display='none') || document.querySelectorAll('.expense-field').forEach(e=>e.style.display='block')}>店務支出</div>
-                                        </label>
+                                        {['income','expense'].map(t => (
+                                            <button type="button" key={t} onClick={() => setFormData({...formData, type: t})} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${formData.type === t ? 'bg-white text-[#bc6c7e] shadow-sm' : 'text-rose-300'}`}>{t==='income'?'客戶服務':'店務支出'}</button>
+                                        ))}
                                     </div>
+                                    
                                     <div className="flex gap-4">
-                                        <div className="flex-1"><label className="text-xs font-bold text-gray-400">日期</label><input type="date" name="date" required defaultValue={modal.data?.date || new Date().toISOString().split('T')[0]} className="w-full p-2 border border-rose-200 rounded-lg bg-white"/></div>
-                                        <div className="flex-1 income-field" style={{display: (modal.data?.type||'income')==='income'?'block':'none'}}><label className="text-xs font-bold text-gray-400">時間</label><input type="time" name="time" defaultValue={modal.data?.time || '10:00'} className="w-full p-2 border border-rose-200 rounded-lg bg-white"/></div>
+                                        <div className="flex-1"><label className="text-xs font-bold text-gray-400">日期</label><input type="date" required value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="w-full p-2 border border-rose-200 rounded-lg bg-white"/></div>
+                                        {formData.type === 'income' && <div className="flex-1"><label className="text-xs font-bold text-gray-400">時間</label><input type="time" value={formData.time} onChange={e => setFormData({...formData, time: e.target.value})} className="w-full p-2 border border-rose-200 rounded-lg bg-white"/></div>}
                                     </div>
-                                    <div className="income-field" style={{display: (modal.data?.type||'income')==='income'?'block':'none'}}><label className="text-xs font-bold text-gray-400">總金額 (含訂)</label><input type="number" name="amount" inputMode="decimal" pattern="[0-9]*" placeholder="0" required defaultValue={modal.data?.amount} className="w-full p-2 border border-rose-200 rounded-lg text-lg font-bold bg-white text-gray-700"/></div>
-                                    <div className="expense-field" style={{display: (modal.data?.type||'income')==='expense'?'block':'none'}}><label className="text-xs font-bold text-gray-400">支出金額</label><input type="number" name="amount" inputMode="decimal" pattern="[0-9]*" placeholder="0" defaultValue={modal.data?.amount} className="w-full p-2 border border-rose-200 rounded-lg text-lg font-bold bg-white text-gray-700"/></div>
-                                    <div className="income-field space-y-4" style={{display: (modal.data?.type||'income')==='income'?'block':'none'}}>
-                                        <div className="flex gap-4">
-                                            <div className="flex-1"><label className="text-xs font-bold text-gray-400">姓名</label><input name="name" required={(!modal.data || modal.data.type==='income')} defaultValue={modal.data?.name} placeholder="王小美" className="w-full p-2 border border-rose-200 rounded-lg bg-white"/></div>
-                                            <div className="flex-1"><label className="text-xs font-bold text-gray-400">電話</label><input name="phone" type="tel" inputMode="numeric" defaultValue={modal.data?.phone} placeholder="09..." className="w-full p-2 border border-rose-200 rounded-lg bg-white"/></div>
-                                        </div>
-                                        <div className="bg-orange-50 p-3 rounded-xl border border-orange-100"><label className="text-xs font-bold text-orange-600 flex gap-1 items-center"><Coins size={12}/> 訂金 (已收)</label><input type="number" name="deposit" inputMode="decimal" pattern="[0-9]*" placeholder="0" defaultValue={modal.data?.deposit} className="w-full p-2 mt-1 border border-orange-200 rounded-lg bg-white"/></div>
-                                        <div><label className="text-xs font-bold text-gray-400">狀態</label><div className="grid grid-cols-2 gap-2 mt-1">{STATUS.map(s => <label key={s.id} className="cursor-pointer"><input type="radio" name="status" value={s.id} className="peer hidden" defaultChecked={modal.data?.status ? modal.data.status===s.id : s.id==='booked'}/><div className="py-2 text-xs font-bold text-center border border-rose-100 rounded-lg text-gray-400 peer-checked:bg-white peer-checked:border-rose-300 peer-checked:text-[#bc6c7e] peer-checked:shadow-sm flex items-center justify-center gap-1 transition-all"><s.icon size={12}/> {s.label}</div></label>)}</div></div>
-                                        <div><label className="text-xs font-bold text-gray-400">項目</label><input name="serviceItem" defaultValue={modal.data?.serviceItem} placeholder="山茶花 400根" className="w-full p-2 border border-rose-200 rounded-lg bg-white"/></div>
-                                        <div><label className="text-xs font-bold text-gray-400">備註/眼型</label><textarea name="eyeShape" defaultValue={modal.data?.eyeShape} rows="2" className="w-full p-2 border border-rose-200 rounded-lg bg-white resize-none"/></div>
-                                    </div>
-                                    <div className="expense-field" style={{display: (modal.data?.type||'income')==='expense'?'block':'none'}}><label className="text-xs font-bold text-gray-400">支出說明</label><input name="expenseItem" defaultValue={modal.data?.expenseItem} placeholder="房租、材料" className="w-full p-2 border border-rose-200 rounded-lg bg-white"/></div>
+
+                                    {formData.type === 'income' ? (
+                                        <>
+                                            <div><label className="text-xs font-bold text-gray-400">總金額 (含訂)</label><input type="number" inputMode="decimal" pattern="[0-9]*" value={formData.amount} onChange={e => setFormData({...formData, amount: e.target.value})} placeholder="0" className="w-full p-2 border border-rose-200 rounded-lg text-lg font-bold bg-white text-gray-700"/></div>
+                                            <div className="flex gap-4">
+                                                <div className="flex-1"><label className="text-xs font-bold text-gray-400">姓名</label><input required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="王小美" className="w-full p-2 border border-rose-200 rounded-lg bg-white"/></div>
+                                                <div className="flex-1"><label className="text-xs font-bold text-gray-400">電話</label><input type="tel" inputMode="numeric" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} placeholder="09..." className="w-full p-2 border border-rose-200 rounded-lg bg-white"/></div>
+                                            </div>
+                                            <div className="bg-orange-50 p-3 rounded-xl border border-orange-100"><label className="text-xs font-bold text-orange-600 flex gap-1 items-center"><Coins size={12}/> 訂金 (已收)</label><input type="number" inputMode="decimal" value={formData.deposit} onChange={e => setFormData({...formData, deposit: e.target.value})} placeholder="0" className="w-full p-2 mt-1 border border-orange-200 rounded-lg bg-white"/></div>
+                                            <div><label className="text-xs font-bold text-gray-400">狀態</label><div className="grid grid-cols-2 gap-2 mt-1">{STATUS.map(s => <button key={s.id} type="button" onClick={() => setFormData({...formData, status: s.id})} className={`py-2 px-1 rounded-lg border text-xs font-bold flex items-center justify-center gap-1 transition-all ${formData.status === s.id ? `border-transparent ${s.color} ring-2 ring-offset-1 ring-rose-200 shadow-sm` : 'border-rose-100 text-gray-400 bg-white hover:bg-rose-50'}`}><s.icon size={12}/> {s.label}</button>)}</div></div>
+                                            <div><label className="text-xs font-bold text-gray-400">項目</label><input value={formData.serviceItem} onChange={e => setFormData({...formData, serviceItem: e.target.value})} placeholder="山茶花 400根" className="w-full p-2 border border-rose-200 rounded-lg bg-white"/></div>
+                                            <div><label className="text-xs font-bold text-gray-400">備註/眼型</label><textarea value={formData.eyeShape} onChange={e => setFormData({...formData, eyeShape: e.target.value})} rows="2" className="w-full p-2 border border-rose-200 rounded-lg bg-white resize-none"/></div>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <div><label className="text-xs font-bold text-gray-400">支出金額</label><input type="number" inputMode="decimal" pattern="[0-9]*" value={formData.amount} onChange={e => setFormData({...formData, amount: e.target.value})} placeholder="0" className="w-full p-2 border border-rose-200 rounded-lg text-lg font-bold bg-white text-gray-700"/></div>
+                                            <div><label className="text-xs font-bold text-gray-400">支出說明</label><input required value={formData.expenseItem} onChange={e => setFormData({...formData, expenseItem: e.target.value})} placeholder="房租、材料" className="w-full p-2 border border-rose-200 rounded-lg bg-white"/></div>
+                                        </>
+                                    )}
                                     <button type="submit" className={`w-full py-3 ${THEME.primary} rounded-xl font-bold shadow-lg active:scale-95 transition-transform`}>儲存記錄</button>
                                 </form>
                             </div>
                         </div>
                     )}
 
-                    {/* 設定 */}
-                    {modal.type === 'settings' && (
-                        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-6 backdrop-blur-sm animate-fadeIn">
-                            <div className="bg-white w-full max-w-xs rounded-2xl shadow-xl p-6 space-y-4">
-                                <h3 className="font-bold text-lg text-[#8a4a58] flex items-center gap-2"><Settings size={20}/> 資料設定</h3>
-                                <button onClick={handleExport} className="w-full py-3 bg-rose-50 text-rose-600 rounded-xl font-bold flex items-center justify-center gap-2"><Download size={18}/> 匯出備份</button>
-                                <div className="relative"><input type="file" onChange={handleImport} className="hidden" ref={fileRef} accept=".json"/><button onClick={()=>fileRef.current.click()} className="w-full py-3 bg-gray-50 text-gray-600 rounded-xl font-bold flex items-center justify-center gap-2"><Upload size={18}/> 匯入資料</button></div>
-                                <button onClick={()=>setModal({type:null})} className="w-full py-3 text-gray-400">關閉</button>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* 確認收款 */}
-                    {modal.type === 'confirm' && (
-                        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-6 backdrop-blur-sm animate-fadeIn">
-                            <div className="bg-white w-full max-w-xs rounded-2xl shadow-xl overflow-hidden text-center">
-                                <div className="bg-emerald-500 p-4 text-white"><CheckCircle size={40} className="mx-auto mb-2 opacity-90"/><h3 className="font-bold">確認完工收款？</h3></div>
-                                <div className="p-6"><p className="text-xl font-bold text-gray-800">{modal.data.name}</p><p className="text-2xl font-bold text-emerald-600 mt-2">${modal.data.amount}</p>{modal.data.deposit > 0 && <p className="text-xs text-orange-500 mt-1">尾款: ${modal.data.amount - modal.data.deposit}</p>}</div>
-                                <div className="flex border-t"><button onClick={()=>setModal({type:null})} className="flex-1 py-3 text-gray-500">取消</button><button onClick={doComplete} className="flex-1 py-3 bg-emerald-50 text-emerald-600 font-bold border-l">確定</button></div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* 刪除確認 */}
-                    {modal.type === 'delete' && (
-                        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-6 backdrop-blur-sm animate-fadeIn">
-                            <div className="bg-white w-full max-w-xs rounded-2xl shadow-xl overflow-hidden text-center">
-                                <div className="bg-rose-400 p-4 text-white"><AlertTriangle size={40} className="mx-auto mb-2 opacity-90"/><h3 className="font-bold">確定刪除？</h3></div>
-                                <div className="p-6"><p className="text-lg font-bold">{modal.data.name||modal.data.expenseItem}</p><p className="text-sm text-gray-400 mt-1">刪除後無法復原</p></div>
-                                <div className="flex border-t"><button onClick={()=>setModal({type:null})} className="flex-1 py-3 text-gray-500">取消</button><button onClick={doDelete} className="flex-1 py-3 bg-rose-50 text-rose-500 font-bold border-l">刪除</button></div>
-                            </div>
-                        </div>
-                    )}
+                    {/* Settings / Confirm / Delete Modals */}
+                    {modal.type === 'settings' && <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-6 backdrop-blur-sm animate-fadeIn"><div className="bg-white w-full max-w-xs rounded-2xl shadow-xl p-6 space-y-4"><h3 className="font-bold text-lg text-[#8a4a58] flex items-center gap-2"><Settings size={20}/> 資料設定</h3><button onClick={handleExport} className="w-full py-3 bg-rose-50 text-rose-600 rounded-xl font-bold flex items-center justify-center gap-2"><Download size={18}/> 匯出備份</button><div className="relative"><input type="file" onChange={handleImport} className="hidden" ref={fileRef} accept=".json"/><button onClick={()=>fileRef.current.click()} className="w-full py-3 bg-gray-50 text-gray-600 rounded-xl font-bold flex items-center justify-center gap-2"><Upload size={18}/> 匯入資料</button></div><button onClick={()=>setModal({type:null})} className="w-full py-3 text-gray-400">關閉</button></div></div>}
+                    {modal.type === 'confirm' && <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-6 backdrop-blur-sm animate-fadeIn"><div className="bg-white w-full max-w-xs rounded-2xl shadow-xl overflow-hidden text-center"><div className="bg-emerald-500 p-4 text-white"><CheckCircle size={40} className="mx-auto mb-2 opacity-90"/><h3 className="font-bold">確認完工收款？</h3></div><div className="p-6"><p className="text-xl font-bold text-gray-800">{modal.data.name}</p><p className="text-2xl font-bold text-emerald-600 mt-2">${modal.data.amount}</p></div><div className="flex border-t"><button onClick={()=>setModal({type:null})} className="flex-1 py-3 text-gray-500">取消</button><button onClick={doComplete} className="flex-1 py-3 bg-emerald-50 text-emerald-600 font-bold border-l">確定</button></div></div></div>}
+                    {modal.type === 'delete' && <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-6 backdrop-blur-sm animate-fadeIn"><div className="bg-white w-full max-w-xs rounded-2xl shadow-xl overflow-hidden text-center"><div className="bg-rose-400 p-4 text-white"><AlertTriangle size={40} className="mx-auto mb-2 opacity-90"/><h3 className="font-bold">確定刪除？</h3></div><div className="p-6"><p className="text-lg font-bold">{modal.data.name||modal.data.expenseItem}</p><p className="text-sm text-gray-400 mt-1">刪除後無法復原</p></div><div className="flex border-t"><button onClick={()=>setModal({type:null})} className="flex-1 py-3 text-gray-500">取消</button><button onClick={doDelete} className="flex-1 py-3 bg-rose-50 text-rose-500 font-bold border-l">刪除</button></div></div></div>}
                 </div>
             );
         }
@@ -446,3 +421,5 @@
     </script>
 </body>
 </html>
+
+
