@@ -1,1147 +1,491 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { 
-  Plus, 
-  Calendar as CalendarIcon, 
-  Search, 
-  User, 
-  Phone, 
-  Eye, 
-  Scissors, 
-  DollarSign, 
-  Trash2, 
-  CreditCard,
-  Gift,
-  X,
-  ChevronLeft,
-  ChevronRight,
-  Clock,
-  CheckCircle,
-  XCircle,
-  CalendarClock,
-  Check,
-  FileText,
-  AlertTriangle,
-  Loader2,
-  Coins,
-  Settings,
-  Download,
-  Upload,
-  Save,
-  Edit2 // 新增編輯圖示
-} from 'lucide-react';
-import { initializeApp } from 'firebase/app';
-import { 
-  getAuth, 
-  signInAnonymously, 
-  onAuthStateChanged,
-  signInWithCustomToken
-} from 'firebase/auth';
-import { 
-  getFirestore, 
-  collection, 
-  addDoc, 
-  onSnapshot, 
-  deleteDoc, 
-  doc,
-  updateDoc,
-  writeBatch
-} from 'firebase/firestore';
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>12 Beauty Studio</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        body { -webkit-tap-highlight-color: transparent; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        input, textarea, select { font-size: 16px !important; } /* 防止 iOS 縮放 */
+        ::-webkit-scrollbar { width: 0px; background: transparent; } /* 隱藏滾動條更美觀 */
+    </style>
+</head>
+<body class="bg-[#fdf2f4] text-gray-700 selection:bg-rose-200">
+    <div id="root"></div>
 
-// --- Firebase Configuration ---
-const firebaseConfig = JSON.parse(__firebase_config);
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-// --- Theme Colors (Dried Rose Palette) ---
-const THEME = {
-  primary: "bg-[#bc6c7e] hover:bg-[#a85e6f] text-white", 
-  primaryLight: "bg-[#f4e3e6]", 
-  secondary: "bg-[#e8b4bd]", 
-  textPrimary: "text-[#8a4a58]", 
-  textSecondary: "text-[#bc6c7e]", 
-  bg: "bg-[#fdf2f4]", 
-};
-
-// --- Constants ---
-const STATUS_OPTIONS = [
-  { id: 'booked', label: '預約中', color: 'bg-blue-50 text-blue-600', icon: CalendarClock },
-  { id: 'normal', label: '已完成', color: 'bg-emerald-50 text-emerald-600', icon: CheckCircle },
-  { id: 'late', label: '遲到', color: 'bg-amber-50 text-amber-600', icon: Clock },
-  { id: 'noshow', label: '放鳥', color: 'bg-stone-100 text-stone-500', icon: XCircle },
-];
-
-const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
-
-// --- Helper Components ---
-const StatBadge = ({ icon: Icon, label, value, colorClass }) => (
-  <div className={`flex flex-col items-center justify-center p-2 rounded-lg ${colorClass} bg-opacity-20 border border-opacity-10`}>
-    <div className="flex items-center gap-1 text-xs opacity-80 mb-1">
-      <Icon size={12} />
-      <span>{label}</span>
-    </div>
-    <span className="text-lg font-bold">{value}</span>
-  </div>
-);
-
-// --- Main App Component ---
-export default function App() {
-  const [user, setUser] = useState(null);
-  const [records, setRecords] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('calendar'); 
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  
-  // State for Edit Mode
-  const [editingId, setEditingId] = useState(null); // If not null, we are editing
-
-  // Modals
-  const [confirmingRecord, setConfirmingRecord] = useState(null); 
-  const [deletingRecord, setDeletingRecord] = useState(null);
-  const fileInputRef = useRef(null);
-
-  // Calendar State
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [selectedDateStr, setSelectedDateStr] = useState(null); 
-
-  // Form State
-  const [recordType, setRecordType] = useState('income');
-  const [formData, setFormData] = useState({
-    name: '',
-    phone: '',
-    birthday: '',
-    date: new Date().toISOString().split('T')[0],
-    time: '10:00',
-    eyeShape: '',
-    serviceItem: '',
-    expenseItem: '',
-    amount: '',
-    deposit: '',
-    status: 'booked', 
-    note: ''
-  });
-
-  // Filter State
-  const [customerSearch, setCustomerSearch] = useState('');
-
-  // --- Auth & Data Fetching ---
-  useEffect(() => {
-    const initAuth = async () => {
-      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-        await signInWithCustomToken(auth, __initial_auth_token);
-      } else {
-        await signInAnonymously(auth);
-      }
-    };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      if (!u) setLoading(false); 
-    });
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    if (!user) return;
-    const collectionRef = collection(db, 'artifacts', appId, 'users', user.uid, 'records');
-    const unsubscribe = onSnapshot(collectionRef, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      data.sort((a, b) => {
-        if (a.date !== b.date) return new Date(b.date) - new Date(a.date);
-        return (a.time || '00:00').localeCompare(b.time || '00:00');
-      });
-      setRecords(data);
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, [user]);
-
-  // --- Derived Data Logic ---
-  const customers = useMemo(() => {
-    const groups = {};
-    records.forEach(record => {
-      if (record.type === 'income') {
-        const key = record.phone || record.name;
-        if (!groups[key]) {
-          groups[key] = {
-            name: record.name,
-            phone: record.phone,
-            birthday: record.birthday,
-            latestEyeShape: record.eyeShape,
-            visits: 0,
-            lateCount: 0,
-            noShowCount: 0,
-            totalSpent: 0,
-            history: []
-          };
-        }
+    <script type="text/babel" data-type="module">
+        // --- 核心與圖示庫 ---
+        import React, { useState, useEffect, useMemo, useRef } from 'https://esm.sh/react@18.2.0';
+        import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
+        import { 
+            Plus, Calendar as CalendarIcon, Search, User, Phone, Eye, Scissors, DollarSign, Trash2, 
+            CreditCard, Gift, X, ChevronLeft, ChevronRight, Clock, CheckCircle, XCircle, CalendarClock, 
+            Check, AlertTriangle, Loader2, Coins, Settings, Download, Upload, Edit2 
+        } from 'https://esm.sh/lucide-react@0.263.1';
         
-        if (record.status === 'normal' || record.status === 'late') {
-          groups[key].visits += 1;
-          groups[key].totalSpent += Number(record.amount || 0);
-        }
-        
-        if (record.status === 'late') groups[key].lateCount += 1;
-        if (record.status === 'noshow') groups[key].noShowCount += 1;
-        
-        if (record.eyeShape && !groups[key].latestEyeShape) {
-           groups[key].latestEyeShape = record.eyeShape;
-        }
+        // --- Firebase (資料庫) ---
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+        import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, writeBatch } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
 
-        groups[key].history.push(record);
-      }
-    });
-    
-    return Object.values(groups).filter(c => 
-      c.name.toLowerCase().includes(customerSearch.toLowerCase()) || 
-      (c.phone && c.phone.includes(customerSearch))
-    );
-  }, [records, customerSearch]);
+        // ==========================================
+        // ⬇️ 請在此處貼上您的 Firebase 設定 ⬇️
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "您的_API_KEY",
+            authDomain: "您的專案ID.firebaseapp.com",
+            projectId: "您的專案ID",
+            storageBucket: "您的專案ID.appspot.com",
+            messagingSenderId: "您的_SENDER_ID",
+            appId: "您的_APP_ID"
+        };
+        // ==========================================
 
-  const calendarDays = useMemo(() => {
-    const year = currentDate.getFullYear();
-    const month = currentDate.getMonth();
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    const days = [];
-    
-    for (let i = 0; i < firstDay.getDay(); i++) {
-      days.push(null);
-    }
-    
-    for (let i = 1; i <= lastDay.getDate(); i++) {
-      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
-      const dayRecords = records.filter(r => r.date === dateStr);
-      dayRecords.sort((a, b) => (a.time || '00:00').localeCompare(b.time || '00:00'));
-      days.push({ date: dateStr, day: i, items: dayRecords });
-    }
-    return days;
-  }, [currentDate, records]);
+        let app, auth, db;
+        let isConfigured = false;
+        try {
+            if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                isConfigured = true;
+            }
+        } catch (e) { console.error(e); }
 
-  const selectedDateDetails = useMemo(() => {
-    if (!selectedDateStr) return null;
-    return calendarDays.find(d => d && d.date === selectedDateStr) || { date: selectedDateStr, items: [] };
-  }, [selectedDateStr, calendarDays]);
+        const appId = "12-beauty-studio-v1"; // 資料庫識別碼
 
-  const financeStats = useMemo(() => {
-    const currentMonthPrefix = currentDate.toISOString().slice(0, 7);
-    const monthlyData = records.filter(r => r.date.startsWith(currentMonthPrefix));
-    
-    const income = monthlyData
-      .filter(r => r.type === 'income' && (r.status === 'normal' || r.status === 'late'))
-      .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
-      
-    const projectedIncome = monthlyData
-      .filter(r => r.type === 'income' && r.status === 'booked')
-      .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+        // --- 主題色 (乾燥玫瑰) ---
+        const THEME = {
+            primary: "bg-[#bc6c7e] hover:bg-[#a85e6f] text-white",
+            primaryLight: "bg-[#f4e3e6]",
+            textPrimary: "text-[#8a4a58]",
+            textSecondary: "text-[#bc6c7e]",
+            bg: "bg-[#fdf2f4]",
+        };
 
-    const expense = monthlyData
-      .filter(r => r.type === 'expense')
-      .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+        const STATUS = [
+            { id: 'booked', label: '預約中', color: 'bg-blue-50 text-blue-600', icon: CalendarClock },
+            { id: 'normal', label: '已完成', color: 'bg-emerald-50 text-emerald-600', icon: CheckCircle },
+            { id: 'late', label: '遲到', color: 'bg-amber-50 text-amber-600', icon: Clock },
+            { id: 'noshow', label: '放鳥', color: 'bg-stone-100 text-stone-500', icon: XCircle },
+        ];
 
-    return { income, projectedIncome, expense, balance: income - expense, list: monthlyData };
-  }, [records, currentDate]);
-
-
-  // --- Handlers ---
-
-  const handleMonthChange = (direction) => {
-    const newDate = new Date(currentDate);
-    newDate.setMonth(newDate.getMonth() + direction);
-    setCurrentDate(newDate);
-    setSelectedDateStr(null);
-  };
-
-  const openAddModal = () => {
-    resetForm();
-    const today = new Date().toISOString().split('T')[0];
-    setFormData(prev => ({...prev, date: today, time: '10:00'}));
-    setEditingId(null);
-    setIsModalOpen(true);
-  };
-
-  const openEditModal = (record) => {
-    setRecordType(record.type);
-    setFormData({
-      name: record.name || '',
-      phone: record.phone || '',
-      birthday: record.birthday || '',
-      date: record.date || '',
-      time: record.time || '10:00',
-      eyeShape: record.eyeShape || '',
-      serviceItem: record.serviceItem || '',
-      expenseItem: record.expenseItem || '',
-      amount: record.amount || '',
-      deposit: record.deposit || '',
-      status: record.status || 'booked',
-      note: record.note || ''
-    });
-    setEditingId(record.id);
-    setIsModalOpen(true);
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!user) return;
-
-    setIsModalOpen(false); // Close immediately for optimistic feel
-    const submissionData = { ...formData };
-    
-    // Optimistic Update (For Edit Mode only to prevent jumpiness)
-    if (editingId) {
-      setRecords(prev => prev.map(r => r.id === editingId ? { ...r, ...submissionData, amount: Number(submissionData.amount), deposit: Number(submissionData.deposit) } : r));
-    }
-
-    resetForm();
-
-    try {
-      const recordData = {
-        type: recordType,
-        date: submissionData.date,
-        time: submissionData.time || '',
-        amount: Number(submissionData.amount),
-        deposit: submissionData.deposit ? Number(submissionData.deposit) : 0,
-        createdAt: new Date().toISOString(), // Keep original createdAt if possible but simplistic here
-        ...submissionData 
-      };
-      
-      // Cleanup fields
-      if (recordType === 'expense') {
-        delete recordData.name; delete recordData.phone; delete recordData.birthday; 
-        delete recordData.eyeShape; delete recordData.serviceItem; delete recordData.status;
-        delete recordData.deposit; delete recordData.time;
-      } else {
-        delete recordData.expenseItem;
-      }
-
-      const collectionRef = collection(db, 'artifacts', appId, 'users', user.uid, 'records');
-
-      if (editingId) {
-        // Update existing
-        await updateDoc(doc(collectionRef, editingId), recordData);
-      } else {
-        // Add new
-        await addDoc(collectionRef, recordData);
-      }
-      
-      setEditingId(null);
-
-    } catch (error) {
-      console.error("Error saving:", error);
-      alert("儲存失敗，請檢查網路連線");
-    }
-  };
-
-  const resetForm = () => {
-    setFormData(prev => ({
-      ...prev,
-      name: '', phone: '', eyeShape: '', serviceItem: '', expenseItem: '', amount: '', deposit: '', status: 'booked', note: '', time: '10:00'
-    }));
-  };
-
-  const initiateDelete = (record) => setDeletingRecord(record);
-
-  const confirmDelete = async () => {
-    if (!user || !deletingRecord) return;
-    const recordId = deletingRecord.id;
-    setRecords(prev => prev.filter(r => r.id !== recordId)); // Optimistic
-    setDeletingRecord(null);
-    try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'records', recordId));
-    } catch (error) {
-      console.error("Error deleting:", error);
-    }
-  };
-
-  const initiateComplete = (record) => setConfirmingRecord(record);
-
-  const confirmCompletion = async () => {
-    if (!user || !confirmingRecord) return;
-    const recordId = confirmingRecord.id;
-    setRecords(prev => prev.map(rec => rec.id === recordId ? { ...rec, status: 'normal' } : rec)); // Optimistic
-    setConfirmingRecord(null);
-    try {
-      await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'records', recordId), { status: 'normal' });
-    } catch (error) { console.error("Error updating:", error); }
-  };
-
-  // --- Export / Import Handlers ---
-  const handleExport = () => {
-    const dataStr = JSON.stringify(records, null, 2);
-    const blob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `12Beauty_Backup_${new Date().toISOString().split('T')[0]}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handleImportTrigger = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleImportFile = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    if (!confirm('匯入將會把舊資料加入目前的記錄中，確定要繼續嗎？')) {
-      e.target.value = '';
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      try {
-        const importedData = JSON.parse(event.target.result);
-        if (!Array.isArray(importedData)) throw new Error('Invalid Format');
-
-        const batch = writeBatch(db);
-        let count = 0;
-        
-        importedData.forEach((item) => {
-           const newDocRef = doc(collection(db, 'artifacts', appId, 'users', user.uid, 'records'));
-           const { id, ...dataToSave } = item; 
-           batch.set(newDocRef, dataToSave);
-           count++;
-        });
-
-        if (count > 0) {
-          await batch.commit();
-          alert(`成功匯入 ${count} 筆資料！`);
-          setIsSettingsOpen(false);
-        }
-      } catch (err) {
-        alert('匯入失敗：檔案格式錯誤');
-        console.error(err);
-      }
-      e.target.value = ''; 
-    };
-    reader.readAsText(file);
-  };
-
-  // --- Renders ---
-
-  return (
-    <div className={`min-h-screen ${THEME.bg} text-gray-800 font-sans pb-24`}>
-      
-      {/* Top Nav */}
-      <div className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-20 px-4 py-3 flex justify-between items-center border-b border-rose-100">
-        <div className="flex items-center gap-2">
-           <div className={`w-8 h-8 ${THEME.primary} rounded-lg flex items-center justify-center font-serif font-bold text-lg shadow-sm`}>12</div>
-           <span className={`font-bold text-lg ${THEME.textPrimary} tracking-wide`}>Beauty Studio</span>
-        </div>
-        <div className="flex items-center gap-2">
-           <button 
-             onClick={() => setIsSettingsOpen(true)}
-             className="p-2 text-rose-400 hover:bg-rose-50 rounded-full transition-colors"
-           >
-             <Settings size={20} />
-           </button>
-           <button 
-            onClick={openAddModal} 
-            className={`${THEME.primary} px-3 py-1.5 rounded-full text-sm font-medium flex items-center gap-1 shadow-md hover:shadow-lg active:scale-95 transition-all`}
-          >
-            <Plus size={16} /> 預約
-          </button>
-        </div>
-      </div>
-
-      <div className="max-w-md mx-auto p-4">
-        
-        {loading ? (
-          <div className="flex flex-col items-center justify-center py-20 text-rose-300">
-            <Loader2 size={32} className="animate-spin mb-2" />
-            <p className="text-sm">美睫資料載入中...</p>
-          </div>
-        ) : (
-          <>
-            {/* --- TAB: Calendar --- */}
-            {activeTab === 'calendar' && (
-              <div className="space-y-4 animate-fadeIn">
-                <div className="flex items-center justify-between bg-white/90 p-3 rounded-2xl shadow-sm border border-rose-100">
-                  <button onClick={() => handleMonthChange(-1)} className="p-2 hover:bg-rose-50 rounded-full text-rose-400"><ChevronLeft size={20} /></button>
-                  <h2 className={`text-lg font-bold ${THEME.textPrimary}`}>
-                    {currentDate.getFullYear()}年 {currentDate.getMonth() + 1}月
-                  </h2>
-                  <button onClick={() => handleMonthChange(1)} className="p-2 hover:bg-rose-50 rounded-full text-rose-400"><ChevronRight size={20} /></button>
+        // --- 主程式 ---
+        function App() {
+            if (!isConfigured) return (
+                <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center text-[#8a4a58]">
+                    <AlertTriangle size={48} className="mb-4 text-rose-300" />
+                    <h2 className="text-xl font-bold mb-2">尚未連結資料庫</h2>
+                    <p className="text-sm opacity-70 mb-4">請用記事本開啟 <code>index.html</code> 並填入 Firebase 設定。</p>
                 </div>
+            );
 
-                <div className="bg-white/90 rounded-2xl shadow-sm border border-rose-100 overflow-hidden">
-                  <div className="grid grid-cols-7 bg-rose-50/50 border-b border-rose-100">
-                    {WEEKDAYS.map(d => (
-                      <div key={d} className="py-2 text-center text-xs font-bold text-rose-400">{d}</div>
-                    ))}
-                  </div>
-                  <div className="grid grid-cols-7 min-h-[300px]">
-                    {calendarDays.map((day, idx) => {
-                      if (!day) return <div key={`empty-${idx}`} className="bg-white/30 border-b border-r border-rose-50" />;
-                      
-                      const isSelected = selectedDateStr === day.date;
-                      const isToday = day.date === new Date().toISOString().split('T')[0];
-                      const dayExpenses = day.items.filter(i => i.type === 'expense');
-
-                      return (
-                        <div 
-                          key={day.date} 
-                          onClick={() => setSelectedDateStr(day.date)}
-                          className={`
-                            min-h-[80px] p-1 border-b border-r border-rose-50 relative cursor-pointer transition-colors flex flex-col gap-1
-                            ${isSelected ? 'bg-rose-100' : 'hover:bg-rose-50'}
-                          `}
-                        >
-                          <div className="flex justify-between items-center px-1">
-                             <span className={`
-                              text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-medium
-                              ${isToday ? `${THEME.primary} shadow-sm` : 'text-rose-400'}
-                            `}>
-                              {day.day}
-                            </span>
-                            {dayExpenses.length > 0 && (
-                              <div className="w-1.5 h-1.5 bg-rose-300 rounded-full" title="有支出" />
-                            )}
-                          </div>
-                          
-                          <div className="flex flex-col gap-0.5 overflow-hidden">
-                            {day.items.filter(i => i.type === 'income').slice(0, 3).map((item, i) => (
-                              <div 
-                                key={item.id} 
-                                className={`
-                                  text-[9px] truncate px-1 py-0.5 rounded-[4px] leading-tight flex items-center gap-0.5
-                                  ${item.status === 'booked' ? 'bg-blue-50 text-blue-600' : 
-                                    item.status === 'noshow' ? 'bg-stone-100 text-stone-400 decoration-line-through' :
-                                    'bg-emerald-50 text-emerald-600'}
-                                `}
-                              >
-                                <span className="font-mono text-[8px] opacity-70">{item.time}</span>
-                                {item.name}
-                              </div>
-                            ))}
-                            {day.items.filter(i => i.type === 'income').length > 3 && (
-                              <div className="text-[9px] text-rose-300 px-1">+ {day.items.filter(i => i.type === 'income').length - 3}</div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {selectedDateDetails && selectedDateDetails.date && (
-                  <div className="bg-white/90 rounded-2xl shadow-sm border border-rose-100 p-4 animate-slideUp">
-                    <div className="flex justify-between items-center mb-3">
-                      <h3 className={`font-bold ${THEME.textPrimary} flex items-center gap-2`}>
-                        <CalendarIcon size={18} className="text-rose-400" />
-                        {selectedDateDetails.date}
-                      </h3>
-                      <button onClick={() => setSelectedDateStr(null)} className="text-rose-300"><X size={16} /></button>
-                    </div>
-                    
-                    <div className="space-y-3">
-                      {selectedDateDetails.items.length === 0 ? (
-                        <p className="text-rose-300 text-sm text-center py-4">本日無安排</p>
-                      ) : (
-                        selectedDateDetails.items.map(item => (
-                          <div key={item.id} className="flex justify-between items-start border-b border-rose-50 pb-3 last:border-0">
-                            <div className="flex gap-3">
-                              <div className={`mt-1 w-8 h-8 rounded-full flex items-center justify-center shrink-0
-                                ${item.type === 'expense' ? 'bg-rose-100 text-rose-500' : 
-                                  item.status === 'booked' ? 'bg-blue-50 text-blue-500' : 
-                                  item.status === 'noshow' ? 'bg-stone-100 text-stone-400' : 'bg-emerald-50 text-emerald-500'}
-                              `}>
-                                {item.type === 'expense' ? <CreditCard size={14}/> : 
-                                 item.status === 'booked' ? <CalendarClock size={14}/> :
-                                 item.status === 'noshow' ? <XCircle size={14}/> : <Check size={14}/>}
-                              </div>
-
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2">
-                                   <p className={`font-bold text-sm ${THEME.textPrimary}`}>
-                                      {item.type === 'income' ? item.name : item.expenseItem}
-                                   </p>
-                                   {item.time && item.type === 'income' && (
-                                     <span className="text-xs font-mono text-rose-400 bg-rose-50 px-1 rounded">{item.time}</span>
-                                   )}
-                                </div>
-                                {item.type === 'income' && (
-                                  <div className="text-xs text-gray-500 space-y-1 mt-1">
-                                    <p className="font-medium text-gray-600">{item.serviceItem}</p>
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      {item.status === 'booked' && <span className="text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">預約中</span>}
-                                      {item.status === 'late' && <span className="text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">遲到</span>}
-                                      {item.status === 'noshow' && <span className="text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded">放鳥</span>}
-                                      {item.status === 'normal' && <span className="text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">已收款</span>}
-                                      
-                                      {item.deposit > 0 && (
-                                        <span className="text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded flex items-center gap-0.5">
-                                          <Coins size={10} /> 訂 ${item.deposit}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="text-right flex flex-col items-end gap-2">
-                              <div>
-                                <p className={`font-mono font-bold ${item.type === 'income' ? 'text-emerald-600' : 'text-rose-500'}`}>
-                                  ${item.amount}
-                                </p>
-                                {item.type === 'income' && item.deposit > 0 && (
-                                  <p className="text-[10px] text-gray-400">餘: ${item.amount - item.deposit}</p>
-                                )}
-                              </div>
-                              
-                              <div className="flex items-center gap-2">
-                                {item.type === 'income' && item.status === 'booked' && (
-                                  <button 
-                                    onClick={() => initiateComplete(item)}
-                                    className="text-xs bg-emerald-500 text-white px-3 py-1.5 rounded-lg shadow-sm active:scale-95 transition-all flex items-center gap-1"
-                                  >
-                                    <CheckCircle size={12} /> 完工
-                                  </button>
-                                )}
-                                
-                                <button onClick={() => openEditModal(item)} className="text-rose-300 hover:text-rose-600 p-1">
-                                   <Edit2 size={14} />
-                                </button>
-                                
-                                <button onClick={() => initiateDelete(item)} className="text-rose-200 hover:text-rose-500 p-1">
-                                   <Trash2 size={14} />
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* --- TAB: Customers --- */}
-            {activeTab === 'customers' && (
-              <div className="space-y-4 animate-fadeIn">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-rose-300" size={18} />
-                  <input
-                    type="text"
-                    placeholder="搜尋客戶姓名或電話..."
-                    value={customerSearch}
-                    onChange={(e) => setCustomerSearch(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 bg-white border border-rose-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-300 shadow-sm text-gray-700 placeholder-rose-200"
-                  />
-                </div>
-
-                <div className="grid gap-4">
-                  {customers.length === 0 ? (
-                    <div className="text-center py-10 text-rose-300">找不到相符的客戶資料</div>
-                  ) : (
-                    customers.map((c, idx) => (
-                      <div key={idx} className="bg-white rounded-2xl shadow-sm border border-rose-100 overflow-hidden hover:shadow-md transition-all">
-                        <div className={`p-4 ${THEME.primaryLight} border-b border-rose-100 flex justify-between items-start`}>
-                          <div className="flex items-center gap-3">
-                            <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-rose-400 font-bold text-xl shadow-sm">
-                              {c.name?.[0]}
-                            </div>
-                            <div>
-                              <h3 className={`font-bold text-lg ${THEME.textPrimary}`}>{c.name}</h3>
-                              <div className="flex items-center gap-2 text-xs text-rose-400">
-                                 {c.phone && <span className="flex items-center gap-0.5"><Phone size={10}/> {c.phone}</span>}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                             <span className="text-xs text-rose-400 block">累積消費</span>
-                             <span className={`font-bold text-lg ${THEME.textSecondary}`}>${c.totalSpent.toLocaleString()}</span>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-3 gap-2 p-3 border-b border-rose-50">
-                          <StatBadge icon={CheckCircle} label="光臨次數" value={c.visits} colorClass="text-emerald-600 bg-emerald-50" />
-                          <StatBadge icon={Clock} label="遲到次數" value={c.lateCount} colorClass={c.lateCount > 0 ? "text-amber-600 bg-amber-50" : "text-gray-400 bg-gray-50"} />
-                          <StatBadge icon={XCircle} label="放鳥次數" value={c.noShowCount} colorClass={c.noShowCount > 0 ? "text-stone-600 bg-stone-100" : "text-gray-400 bg-gray-50"} />
-                        </div>
-
-                        <div className="p-3 bg-rose-50/30 text-sm">
-                          <details className="group">
-                            <summary className="cursor-pointer text-xs text-rose-400 font-medium hover:text-rose-500 flex items-center gap-1 select-none py-1">
-                              查看紀錄 ({c.history.length})
-                              <ChevronRight size={12} className="group-open:rotate-90 transition-transform" />
-                            </summary>
-                            
-                            <div className="mt-3 space-y-3 max-h-80 overflow-y-auto pl-1 pr-1">
-                              {c.history.map(h => (
-                                <div key={h.id} className="bg-white p-3 rounded-xl border border-rose-100 shadow-sm relative">
-                                  <div className="flex justify-between items-center mb-2">
-                                    <span className="text-xs font-bold text-rose-400 flex items-center gap-1">
-                                      <CalendarIcon size={10} /> {h.date} <span className="bg-rose-50 px-1 rounded">{h.time}</span>
-                                    </span>
-                                    <div className="flex gap-2">
-                                      <span className={`text-[10px] px-1.5 py-0.5 rounded border ${
-                                        h.status === 'booked' ? 'bg-blue-50 text-blue-500 border-blue-100' :
-                                        h.status === 'noshow' ? 'bg-stone-50 text-stone-400 border-stone-100' :
-                                        'bg-emerald-50 text-emerald-500 border-emerald-100'
-                                      }`}>
-                                        {STATUS_OPTIONS.find(s => s.id === h.status)?.label || '未知'}
-                                      </span>
-                                      
-                                      <button onClick={() => openEditModal(h)} className="text-rose-300 hover:text-rose-600">
-                                         <Edit2 size={12} />
-                                      </button>
-                                      
-                                      <button onClick={() => initiateDelete(h)} className="text-rose-200 hover:text-rose-500">
-                                        <Trash2 size={12} />
-                                      </button>
-                                    </div>
-                                  </div>
-
-                                  <div className="flex justify-between items-start mb-2">
-                                    <span className="text-gray-800 font-bold text-sm">{h.serviceItem || "無項目紀錄"}</span>
-                                    <div className="text-right">
-                                      <span className={`font-mono font-bold block ${h.status === 'noshow' ? 'text-stone-300 line-through' : 'text-rose-500'}`}>
-                                        ${h.amount}
-                                      </span>
-                                    </div>
-                                  </div>
-
-                                  {h.deposit > 0 && h.type === 'income' && (
-                                    <div className="flex items-center gap-2 mb-2">
-                                       <span className="text-[10px] font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full flex items-center gap-1 border border-orange-100">
-                                         <Coins size={10} /> 訂 ${h.deposit}
-                                       </span>
-                                       <span className="text-[10px] text-gray-400">
-                                         (尾款 ${h.amount - h.deposit})
-                                       </span>
-                                    </div>
-                                  )}
-
-                                  {h.eyeShape && (
-                                    <div className="mt-2 pt-2 border-t border-rose-50 text-xs text-gray-600 bg-rose-50/50 p-2 rounded-lg">
-                                      <div className="flex items-center gap-1 text-rose-400 mb-0.5">
-                                        <Eye size={10} /> 備註
-                                      </div>
-                                      {h.eyeShape}
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          </details>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* --- TAB: Finance --- */}
-            {activeTab === 'finance' && (
-              <div className="space-y-4 animate-fadeIn">
-                 <div className="bg-white/90 p-3 rounded-2xl shadow-sm border border-rose-100 flex items-center justify-between">
-                   <button onClick={() => handleMonthChange(-1)} className="p-2 hover:bg-rose-50 rounded-full text-rose-400"><ChevronLeft size={16} /></button>
-                   <div className="text-center">
-                     <p className="text-xs text-rose-400">財務報表</p>
-                     <h2 className={`text-xl font-bold ${THEME.textPrimary}`}>{currentDate.getFullYear()} / {currentDate.getMonth() + 1}</h2>
-                   </div>
-                   <button onClick={() => handleMonthChange(1)} className="p-2 hover:bg-rose-50 rounded-full text-rose-400"><ChevronRight size={16} /></button>
-                 </div>
-
-                 {financeStats.projectedIncome > 0 && (
-                   <div className="bg-blue-50 p-3 rounded-2xl border border-blue-100 flex justify-between items-center text-blue-700 shadow-sm">
-                      <span className="text-sm font-medium flex items-center gap-1"><CalendarClock size={16}/> 預估 (預約)</span>
-                      <span className="font-bold text-lg">${financeStats.projectedIncome.toLocaleString()}</span>
-                   </div>
-                 )}
-
-                 <div className="grid grid-cols-2 gap-3">
-                   <div className="bg-white p-4 rounded-2xl shadow-sm border-l-4 border-emerald-400">
-                     <p className="text-xs text-gray-500 mb-1">本月實收 (含訂)</p>
-                     <p className="text-2xl font-bold text-emerald-600">${financeStats.income.toLocaleString()}</p>
-                   </div>
-                   <div className="bg-white p-4 rounded-2xl shadow-sm border-l-4 border-rose-400">
-                     <p className="text-xs text-gray-500 mb-1">本月總支出</p>
-                     <p className="text-2xl font-bold text-rose-500">${financeStats.expense.toLocaleString()}</p>
-                   </div>
-                   <div className={`p-4 rounded-2xl shadow-sm col-span-2 text-white flex justify-between items-center ${THEME.primary}`}>
-                     <span>本月淨利</span>
-                     <span className="text-2xl font-bold">${financeStats.balance.toLocaleString()}</span>
-                   </div>
-                 </div>
-
-                 <div className="bg-white/90 rounded-2xl shadow-sm border border-rose-100">
-                   <div className="p-3 border-b border-rose-50 font-bold text-gray-700 text-sm">收支明細</div>
-                   {financeStats.list.length === 0 ? (
-                     <div className="p-4 text-center text-rose-300 text-sm">本月無資料</div>
-                   ) : (
-                     <div className="divide-y divide-rose-50">
-                        {financeStats.list.map(item => (
-                          <div key={item.id} className="p-3 flex justify-between items-center text-sm">
-                            <div className="flex items-center gap-2">
-                              <span className="text-rose-400 text-xs w-12">{item.date.slice(5)}</span>
-                              <div className="flex flex-col">
-                                 <span className="text-gray-800 font-medium flex items-center gap-1">
-                                    {item.type === 'income' ? item.name : item.expenseItem}
-                                    {item.status === 'booked' && <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>}
-                                 </span>
-                                 {item.status === 'noshow' && <span className="text-[10px] text-stone-400">放鳥</span>}
-                                 {item.deposit > 0 && item.type === 'income' && (
-                                   <span className="text-[10px] text-orange-500 flex items-center gap-0.5">
-                                      <Coins size={10} /> 訂 ${item.deposit}
-                                   </span>
-                                 )}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className={`font-bold 
-                                ${item.status === 'booked' ? 'text-blue-400' : 
-                                  item.status === 'noshow' ? 'text-stone-300 line-through' :
-                                  item.type === 'income' ? 'text-emerald-600' : 'text-rose-500'}
-                              `}>
-                                 {item.type === 'income' ? '+' : '-'}${item.amount}
-                              </span>
-                              
-                              <button onClick={() => openEditModal(item)} className="text-rose-300 hover:text-rose-600 p-1">
-                                 <Edit2 size={14} />
-                              </button>
-                                
-                              <button onClick={() => initiateDelete(item)} className="text-rose-200 hover:text-rose-500 p-1">
-                                <Trash2 size={14} />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                     </div>
-                   )}
-                 </div>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* Settings Modal */}
-      {isSettingsOpen && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white w-full max-w-xs rounded-2xl shadow-xl overflow-hidden p-6 space-y-4">
-             <div className="flex justify-between items-center mb-2">
-               <h3 className={`text-lg font-bold ${THEME.textPrimary} flex items-center gap-2`}>
-                 <Settings size={20} /> 資料設定
-               </h3>
-               <button onClick={() => setIsSettingsOpen(false)} className="text-gray-400"><X size={20}/></button>
-             </div>
-             
-             <button 
-               onClick={handleExport}
-               className="w-full py-3 bg-rose-50 text-rose-600 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-rose-100 transition-colors"
-             >
-               <Download size={18} /> 匯出資料備份
-             </button>
-
-             <div className="relative">
-               <input 
-                 type="file" 
-                 ref={fileInputRef} 
-                 className="hidden" 
-                 accept=".json"
-                 onChange={handleImportFile}
-               />
-               <button 
-                 onClick={handleImportTrigger}
-                 className="w-full py-3 bg-gray-50 text-gray-600 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-gray-100 transition-colors"
-               >
-                 <Upload size={18} /> 匯入舊資料
-               </button>
-             </div>
-             <p className="text-xs text-center text-gray-400 mt-2">匯入會將資料合併至現有記錄中</p>
-          </div>
-        </div>
-      )}
-
-      {/* Confirmation Modal */}
-      {confirmingRecord && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white w-full max-w-xs rounded-2xl shadow-xl overflow-hidden">
-             <div className="bg-emerald-500 p-4 text-white text-center">
-                <CheckCircle size={48} className="mx-auto mb-2 opacity-90" />
-                <h3 className="text-lg font-bold">確認完工收款？</h3>
-             </div>
-             <div className="p-6 text-center space-y-4">
-                <div>
-                  <p className="text-sm text-gray-500 mb-1">客戶</p>
-                  <p className="text-xl font-bold text-gray-800">{confirmingRecord.name}</p>
-                </div>
-                <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
-                  <p className="text-sm text-gray-500 mb-1">收款金額</p>
-                  <p className="text-2xl font-bold text-emerald-600">${confirmingRecord.amount}</p>
-                  {confirmingRecord.deposit > 0 && (
-                     <p className="text-xs text-orange-500 mt-1">
-                       (已收訂金 ${confirmingRecord.deposit}，尾款 ${confirmingRecord.amount - confirmingRecord.deposit})
-                     </p>
-                  )}
-                </div>
-             </div>
-             <div className="flex border-t border-gray-100">
-               <button onClick={() => setConfirmingRecord(null)} className="flex-1 py-4 text-gray-500 hover:bg-gray-50 font-medium">取消</button>
-               <button onClick={confirmCompletion} className="flex-1 py-4 bg-emerald-50 text-emerald-600 font-bold hover:bg-emerald-100 border-l border-gray-100">確定收款</button>
-             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Modal */}
-      {deletingRecord && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white w-full max-w-xs rounded-2xl shadow-xl overflow-hidden">
-             <div className="bg-rose-400 p-4 text-white text-center">
-                <AlertTriangle size={48} className="mx-auto mb-2 opacity-90" />
-                <h3 className="text-lg font-bold">確定要刪除嗎？</h3>
-             </div>
-             <div className="p-6 text-center space-y-4">
-                <div>
-                  <p className="text-sm text-gray-500 mb-1">刪除對象</p>
-                  <p className="text-xl font-bold text-gray-800">
-                    {deletingRecord.type === 'income' ? deletingRecord.name : deletingRecord.expenseItem}
-                  </p>
-                </div>
-                <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
-                  <p className="text-sm text-gray-500 mb-1">金額</p>
-                  <p className="text-2xl font-bold text-gray-800">${deletingRecord.amount}</p>
-                </div>
-             </div>
-             <div className="flex border-t border-gray-100">
-               <button onClick={() => setDeletingRecord(null)} className="flex-1 py-4 text-gray-500 hover:bg-gray-50 font-medium">取消</button>
-               <button onClick={confirmDelete} className="flex-1 py-4 bg-rose-50 text-rose-500 font-bold hover:bg-rose-100 border-l border-gray-100">確認刪除</button>
-             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Nav */}
-      <div className="fixed bottom-0 w-full bg-white/90 backdrop-blur-md border-t border-rose-100 flex justify-around py-3 pb-6 z-30">
-        <button 
-          onClick={() => setActiveTab('calendar')}
-          className={`flex flex-col items-center gap-1 text-xs font-medium transition-colors ${activeTab === 'calendar' ? 'text-rose-500' : 'text-rose-300'}`}
-        >
-          <CalendarIcon size={24} /> 預約月曆
-        </button>
-        <button 
-          onClick={() => setActiveTab('customers')}
-          className={`flex flex-col items-center gap-1 text-xs font-medium transition-colors ${activeTab === 'customers' ? 'text-rose-500' : 'text-rose-300'}`}
-        >
-          <User size={24} /> 客戶名單
-        </button>
-        <button 
-          onClick={() => setActiveTab('finance')}
-          className={`flex flex-col items-center gap-1 text-xs font-medium transition-colors ${activeTab === 'finance' ? 'text-rose-500' : 'text-rose-300'}`}
-        >
-          <DollarSign size={24} /> 財務報表
-        </button>
-      </div>
-
-      {/* Add/Edit Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fadeIn backdrop-blur-sm">
-          <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-y-auto flex flex-col shadow-2xl">
-            <div className="p-4 border-b border-rose-100 flex justify-between items-center bg-rose-50 rounded-t-2xl">
-              <h2 className={`font-bold text-lg ${THEME.textPrimary}`}>{editingId ? '編輯記錄' : '新增記錄'}</h2>
-              <button onClick={() => setIsModalOpen(false)}><X size={24} className="text-rose-300" /></button>
-            </div>
+            const [user, setUser] = useState(null);
+            const [records, setRecords] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [tab, setTab] = useState('calendar'); 
+            const [modal, setModal] = useState({ type: null, data: null }); // type: 'add', 'edit', 'settings', 'confirm', 'delete'
             
-            <form onSubmit={handleSubmit} className="p-5 space-y-5">
-              <div className="grid grid-cols-2 gap-2 bg-rose-50 p-1 rounded-xl">
-                <button
-                  type="button"
-                  onClick={() => { setRecordType('income'); if(!editingId) setFormData(p => ({...p, status: 'booked'})); }}
-                  className={`py-2 rounded-lg text-sm font-bold transition-all ${recordType === 'income' ? 'bg-white shadow text-emerald-600' : 'text-rose-300'}`}
-                >
-                  客戶服務
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setRecordType('expense')}
-                  className={`py-2 rounded-lg text-sm font-bold transition-all ${recordType === 'expense' ? 'bg-white shadow text-rose-500' : 'text-rose-300'}`}
-                >
-                  店務支出
-                </button>
-              </div>
+            const [date, setDate] = useState(new Date());
+            const [selDate, setSelDate] = useState(null); 
+            const [search, setSearch] = useState('');
+            
+            const fileRef = useRef(null);
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-gray-500 mb-1">日期</label>
-                  <input 
-                    type="date" 
-                    required
-                    value={formData.date}
-                    onChange={e => setFormData({...formData, date: e.target.value})}
-                    className="w-full p-2 border border-rose-200 rounded-lg focus:ring-2 focus:ring-rose-400 outline-none text-gray-700 bg-white" 
-                  />
-                </div>
-                {recordType === 'income' && (
-                  <div>
-                    <label className="block text-xs font-bold text-gray-500 mb-1">時間</label>
-                    <input 
-                      type="time" 
-                      value={formData.time}
-                      onChange={e => setFormData({...formData, time: e.target.value})}
-                      className="w-full p-2 border border-rose-200 rounded-lg focus:ring-2 focus:ring-rose-400 outline-none text-gray-700 bg-white" 
-                    />
-                  </div>
-                )}
-                {recordType === 'expense' && (
-                   <div>
-                    <label className="block text-xs font-bold text-gray-500 mb-1">金額</label>
-                    <input 
-                      type="number"
-                      inputMode="numeric" 
-                      pattern="[0-9]*"
-                      required
-                      placeholder="0"
-                      value={formData.amount}
-                      onChange={e => setFormData({...formData, amount: e.target.value})}
-                      className="w-full p-2 border border-rose-200 rounded-lg focus:ring-2 focus:ring-rose-400 outline-none text-gray-700 bg-white" 
-                    />
-                  </div>
-                )}
-              </div>
-              
-              {recordType === 'income' && (
-                 <div>
-                    <label className="block text-xs font-bold text-gray-500 mb-1">總金額 (含訂金)</label>
-                    <input 
-                      type="number"
-                      inputMode="numeric" 
-                      pattern="[0-9]*"
-                      required
-                      placeholder="0"
-                      value={formData.amount}
-                      onChange={e => setFormData({...formData, amount: e.target.value})}
-                      className="w-full p-2 border border-rose-200 rounded-lg focus:ring-2 focus:ring-rose-400 outline-none text-gray-700 bg-white" 
-                    />
-                  </div>
-              )}
+            // 登入與監聽
+            useEffect(() => {
+                signInAnonymously(auth);
+                return onAuthStateChanged(auth, u => { setUser(u); if(!u) setLoading(false); });
+            }, []);
 
-              {recordType === 'income' && (
-                <>
-                  <div className="grid grid-cols-2 gap-4">
-                     <div>
-                        <label className="block text-xs font-bold text-gray-500 mb-1">客戶姓名</label>
-                        <input 
-                          type="text" 
-                          required
-                          placeholder="王小美"
-                          value={formData.name}
-                          onChange={e => setFormData({...formData, name: e.target.value})}
-                          className="w-full p-2 border border-rose-200 rounded-lg focus:ring-2 focus:ring-rose-400 outline-none text-gray-700 bg-white" 
-                        />
-                     </div>
-                     <div>
-                        <label className="block text-xs font-bold text-gray-500 mb-1">電話</label>
-                        <input 
-                          type="tel"
-                          inputMode="numeric" 
-                          pattern="[0-9]*" 
-                          placeholder="09..."
-                          value={formData.phone}
-                          onChange={e => setFormData({...formData, phone: e.target.value})}
-                          className="w-full p-2 border border-rose-200 rounded-lg focus:ring-2 focus:ring-rose-400 outline-none text-gray-700 bg-white" 
-                        />
-                     </div>
-                  </div>
+            // 資料同步
+            useEffect(() => {
+                if (!user) return;
+                return onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'records'), sn => {
+                    const data = sn.docs.map(d => ({ id: d.id, ...d.data() }));
+                    data.sort((a, b) => {
+                        if (a.date !== b.date) return new Date(b.date) - new Date(a.date);
+                        return (a.time || '00:00').localeCompare(b.time || '00:00');
+                    });
+                    setRecords(data);
+                    setLoading(false);
+                });
+            }, [user]);
 
-                  <div className="bg-orange-50 p-3 rounded-xl border border-orange-100">
-                     <label className="block text-xs font-bold text-orange-600 mb-1 flex items-center gap-1">
-                       <Coins size={12}/> 訂金 (已收)
-                     </label>
-                     <div className="flex gap-2 items-center">
-                       <input 
-                          type="number"
-                          inputMode="numeric" 
-                          pattern="[0-9]*"
-                          placeholder="0"
-                          value={formData.deposit}
-                          onChange={e => setFormData({...formData, deposit: e.target.value})}
-                          className="w-full p-2 border border-orange-200 rounded-lg focus:ring-2 focus:ring-orange-400 outline-none bg-white text-gray-700" 
-                        />
-                        {formData.amount && formData.deposit && (
-                          <span className="text-xs text-orange-400 whitespace-nowrap">
-                            尾款: ${formData.amount - formData.deposit}
-                          </span>
+            // 計算邏輯
+            const calendarData = useMemo(() => {
+                const y = date.getFullYear(), m = date.getMonth();
+                const days = Array(new Date(y, m, 1).getDay()).fill(null);
+                for (let i = 1; i <= new Date(y, m + 1, 0).getDate(); i++) {
+                    const dStr = `${y}-${String(m + 1).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
+                    const items = records.filter(r => r.date === dStr).sort((a,b)=>(a.time||'').localeCompare(b.time||''));
+                    days.push({ day: i, date: dStr, items });
+                }
+                return days;
+            }, [date, records]);
+
+            const selDayDetails = useMemo(() => selDate ? (calendarData.find(d => d && d.date === selDate) || { date: selDate, items: [] }) : null, [selDate, calendarData]);
+
+            const customers = useMemo(() => {
+                const map = {};
+                records.forEach(r => {
+                    if (r.type !== 'income') return;
+                    const k = r.phone || r.name;
+                    if (!map[k]) map[k] = { name: r.name, phone: r.phone, visits: 0, late: 0, noshow: 0, total: 0, history: [] };
+                    if (r.status === 'normal' || r.status === 'late') { map[k].visits++; map[k].total += Number(r.amount); }
+                    if (r.status === 'late') map[k].late++;
+                    if (r.status === 'noshow') map[k].noshow++;
+                    map[k].history.push(r);
+                });
+                return Object.values(map).filter(c => c.name.includes(search) || c.phone.includes(search));
+            }, [records, search]);
+
+            const stats = useMemo(() => {
+                const prefix = date.toISOString().slice(0, 7);
+                const monthRecs = records.filter(r => r.date.startsWith(prefix));
+                const income = monthRecs.filter(r => r.type === 'income' && (r.status === 'normal' || r.status === 'late')).reduce((s, r) => s + Number(r.amount), 0);
+                const expense = monthRecs.filter(r => r.type === 'expense').reduce((s, r) => s + Number(r.amount), 0);
+                const projected = monthRecs.filter(r => r.type === 'income' && r.status === 'booked').reduce((s, r) => s + Number(r.amount), 0);
+                return { income, expense, projected, balance: income - expense, list: monthRecs };
+            }, [records, date]);
+
+            // 操作
+            const saveRecord = async (e) => {
+                e.preventDefault();
+                const fd = new FormData(e.target);
+                const raw = Object.fromEntries(fd);
+                const isEdit = modal.type === 'edit';
+                
+                // 立即關閉視窗 (Optimistic)
+                setModal({ type: null });
+
+                const docData = {
+                    type: raw.type, date: raw.date, time: raw.time || '',
+                    amount: Number(raw.amount), deposit: Number(raw.deposit || 0),
+                    name: raw.name || '', phone: raw.phone || '', serviceItem: raw.serviceItem || '',
+                    expenseItem: raw.expenseItem || '', status: raw.status || 'booked',
+                    eyeShape: raw.eyeShape || '', createdAt: new Date().toISOString()
+                };
+
+                // 清理欄位
+                if (raw.type === 'expense') { 
+                    delete docData.name; delete docData.phone; delete docData.serviceItem; 
+                    delete docData.status; delete docData.deposit; delete docData.time; delete docData.eyeShape;
+                } else { delete docData.expenseItem; }
+
+                try {
+                    const col = collection(db, 'artifacts', appId, 'users', user.uid, 'records');
+                    if (isEdit) await updateDoc(doc(col, modal.data.id), docData);
+                    else await addDoc(col, docData);
+                } catch(err) { alert("儲存失敗"); console.error(err); }
+            };
+
+            const doDelete = async () => {
+                const id = modal.data.id;
+                setRecords(p => p.filter(r => r.id !== id)); // Optimistic
+                setModal({ type: null });
+                await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'records', id));
+            };
+
+            const doComplete = async () => {
+                const id = modal.data.id;
+                setRecords(p => p.map(r => r.id === id ? { ...r, status: 'normal' } : r)); // Optimistic
+                setModal({ type: null });
+                await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'records', id), { status: 'normal' });
+            };
+
+            const handleImport = async (e) => {
+                const f = e.target.files[0];
+                if (!f) return;
+                const reader = new FileReader();
+                reader.onload = async (ev) => {
+                    try {
+                        const arr = JSON.parse(ev.target.result);
+                        const batch = writeBatch(db);
+                        arr.forEach(({id, ...d}) => batch.set(doc(collection(db, 'artifacts', appId, 'users', user.uid, 'records')), d));
+                        await batch.commit();
+                        alert("匯入成功"); setModal({type:null});
+                    } catch { alert("格式錯誤"); }
+                };
+                reader.readAsText(f);
+            };
+
+            const handleExport = () => {
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(new Blob([JSON.stringify(records, null, 2)], {type:'application/json'}));
+                link.download = `backup-${new Date().toISOString().split('T')[0]}.json`;
+                link.click();
+            };
+
+            // --- 渲染 ---
+            if (loading) return <div className="h-screen flex items-center justify-center text-rose-300"><Loader2 className="animate-spin" /></div>;
+
+            return (
+                <div className={`min-h-screen ${THEME.bg} pb-24`}>
+                    {/* Header */}
+                    <div className="bg-white/80 backdrop-blur-md sticky top-0 z-20 px-4 py-3 flex justify-between items-center border-b border-rose-100 shadow-sm">
+                        <div className="flex items-center gap-2 font-bold text-lg text-[#8a4a58]">
+                            <div className="w-8 h-8 bg-[#bc6c7e] text-white rounded-lg flex items-center justify-center">12</div>
+                            Beauty Studio
+                        </div>
+                        <div className="flex gap-2">
+                            <button onClick={() => setModal({ type: 'settings' })} className="p-2 text-rose-300 hover:bg-rose-50 rounded-full"><Settings size={20}/></button>
+                            <button onClick={() => setModal({ type: 'add' })} className={`${THEME.primary} px-3 py-1.5 rounded-full text-sm font-bold flex items-center gap-1 shadow-md active:scale-95 transition-transform`}><Plus size={16}/> 預約</button>
+                        </div>
+                    </div>
+
+                    <div className="max-w-md mx-auto p-4 space-y-4">
+                        
+                        {/* TAB: 月曆 */}
+                        {tab === 'calendar' && (
+                            <div className="animate-fadeIn space-y-4">
+                                <div className="flex justify-between items-center bg-white p-3 rounded-2xl shadow-sm border border-rose-100">
+                                    <button onClick={() => setDate(new Date(date.setMonth(date.getMonth()-1)))} className="p-2 text-rose-400"><ChevronLeft/></button>
+                                    <h2 className="text-lg font-bold text-[#8a4a58]">{date.getFullYear()} 年 {date.getMonth()+1} 月</h2>
+                                    <button onClick={() => setDate(new Date(date.setMonth(date.getMonth()+1)))} className="p-2 text-rose-400"><ChevronRight/></button>
+                                </div>
+                                <div className="bg-white rounded-2xl shadow-sm border border-rose-100 overflow-hidden">
+                                    <div className="grid grid-cols-7 text-center py-2 bg-rose-50/50 text-rose-400 text-xs font-bold">{['日','一','二','三','四','五','六'].map(d=><div key={d}>{d}</div>)}</div>
+                                    <div className="grid grid-cols-7 min-h-[300px]">
+                                        {calendarData.map((d, i) => !d ? <div key={i} className="bg-white/30 border-b border-r border-rose-50"/> : (
+                                            <div key={i} onClick={() => setSelDate(d.date)} className={`min-h-[80px] p-1 border-b border-r border-rose-50 cursor-pointer ${selDate===d.date ? 'bg-rose-100' : 'hover:bg-rose-50'}`}>
+                                                <div className="flex justify-between px-1"><span className={`text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-bold ${d.date === new Date().toISOString().split('T')[0] ? 'bg-[#bc6c7e] text-white' : 'text-rose-400'}`}>{d.day}</span>{d.items.some(x=>x.type==='expense') && <div className="w-1.5 h-1.5 bg-rose-300 rounded-full"/>}</div>
+                                                <div className="space-y-0.5 mt-1">{d.items.filter(x=>x.type==='income').slice(0,3).map(x => (
+                                                    <div key={x.id} className={`text-[9px] truncate px-1 rounded flex gap-1 ${x.status==='booked'?'bg-blue-50 text-blue-600':x.status==='noshow'?'bg-stone-100 text-stone-400 line-through':'bg-emerald-50 text-emerald-600'}`}>
+                                                        <span className="opacity-70 font-mono">{x.time}</span>{x.name}
+                                                    </div>
+                                                ))}
+                                                {d.items.filter(x=>x.type==='income').length > 3 && <div className="text-[9px] text-rose-300 px-1">+{d.items.filter(x=>x.type==='income').length-3}</div>}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                                {selDayDetails && (
+                                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-rose-100 animate-slideUp">
+                                        <div className="flex justify-between mb-3"><h3 className="font-bold flex gap-2 text-[#8a4a58]"><CalendarIcon size={18} className="text-rose-400"/> {selDayDetails.date}</h3><button onClick={()=>setSelDate(null)}><X size={16} className="text-rose-300"/></button></div>
+                                        {selDayDetails.items.length === 0 ? <p className="text-center text-sm text-rose-300 py-4">本日無安排</p> : 
+                                        <div className="space-y-3">{selDayDetails.items.map(it => (
+                                            <div key={it.id} className="flex justify-between items-start border-b border-rose-50 pb-3 last:border-0">
+                                                <div className="flex gap-3">
+                                                    <div className={`mt-1 w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${it.type==='expense'?'bg-rose-100 text-rose-500':it.status==='booked'?'bg-blue-50 text-blue-500':it.status==='noshow'?'bg-stone-100 text-stone-400':'bg-emerald-50 text-emerald-500'}`}>
+                                                        {it.type==='expense'?<CreditCard size={14}/>:it.status==='booked'?<CalendarClock size={14}/>:it.status==='noshow'?<XCircle size={14}/>:<Check size={14}/>}
+                                                    </div>
+                                                    <div>
+                                                        <div className="flex items-center gap-2"><span className="font-bold text-sm">{it.type==='income'?it.name:it.expenseItem}</span>{it.time && it.type==='income' && <span className="text-xs bg-rose-50 text-rose-400 px-1 rounded font-mono">{it.time}</span>}</div>
+                                                        {it.type==='income' && <div className="text-xs text-gray-500 mt-1 space-y-1"><p>{it.serviceItem}</p><div className="flex gap-2">{it.deposit>0&&<span className="bg-orange-50 text-orange-600 px-1 rounded flex items-center gap-0.5"><Coins size={10}/> 訂 ${it.deposit}</span>}<span className="bg-gray-50 px-1 rounded">{STATUS.find(s=>s.id===it.status)?.label}</span></div></div>}
+                                                    </div>
+                                                </div>
+                                                <div className="text-right space-y-1">
+                                                    <p className={`font-mono font-bold ${it.type==='income'?'text-emerald-600':'text-rose-500'}`}>${it.amount}</p>
+                                                    {it.type==='income' && it.deposit>0 && <p className="text-[10px] text-gray-400">餘: ${it.amount-it.deposit}</p>}
+                                                    <div className="flex justify-end gap-2">
+                                                        {it.status==='booked'&&it.type==='income'&&<button onClick={()=>setModal({type:'confirm',data:it})} className="text-emerald-500"><CheckCircle size={16}/></button>}
+                                                        <button onClick={()=>setModal({type:'edit',data:it})} className="text-rose-300"><Edit2 size={14}/></button>
+                                                        <button onClick={()=>setModal({type:'delete',data:it})} className="text-rose-200"><Trash2 size={14}/></button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}</div>}
+                                    </div>
+                                )}
+                            </div>
                         )}
-                     </div>
-                  </div>
 
-                  <div>
-                     <label className="block text-xs font-bold text-gray-500 mb-1">狀態</label>
-                     <div className="grid grid-cols-2 gap-2 mb-2">
-                       {STATUS_OPTIONS.map(opt => (
-                         <button
-                           key={opt.id}
-                           type="button"
-                           onClick={() => setFormData({...formData, status: opt.id})}
-                           className={`
-                             py-2 px-1 rounded-lg border text-xs font-bold flex items-center justify-center gap-1 transition-all
-                             ${formData.status === opt.id ? `border-transparent ${opt.color} ring-2 ring-offset-1 ring-rose-200 shadow-sm` : 'border-rose-100 text-gray-400 bg-white hover:bg-rose-50'}
-                           `}
-                         >
-                           <opt.icon size={14} />
-                           {opt.label}
-                         </button>
-                       ))}
-                     </div>
-                  </div>
+                        {/* TAB: 客戶名單 */}
+                        {tab === 'customers' && (
+                            <div className="animate-fadeIn space-y-4">
+                                <div className="relative"><Search className="absolute left-3 top-2.5 text-rose-300" size={18}/><input type="text" placeholder="搜尋..." value={search} onChange={e=>setSearch(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-white border border-rose-200 rounded-xl outline-none focus:ring-2 focus:ring-rose-300"/></div>
+                                <div className="space-y-4">
+                                    {customers.map((c, i) => (
+                                        <div key={i} className="bg-white rounded-2xl shadow-sm border border-rose-100 overflow-hidden">
+                                            <div className="p-4 bg-[#f4e3e6] flex justify-between items-center">
+                                                <div className="flex items-center gap-3"><div className="w-10 h-10 bg-white rounded-full flex items-center justify-center font-bold text-rose-400 shadow-sm">{c.name[0]}</div><div><h3 className="font-bold text-[#8a4a58]">{c.name}</h3><span className="text-xs text-rose-400 flex items-center gap-1"><Phone size={10}/> {c.phone}</span></div></div>
+                                                <div className="text-right"><span className="text-xs text-rose-400">累積消費</span><p className="font-bold text-[#bc6c7e]">${c.total.toLocaleString()}</p></div>
+                                            </div>
+                                            <div className="grid grid-cols-3 gap-2 p-3 text-center border-b border-rose-50">
+                                                <div className="bg-emerald-50 text-emerald-600 p-2 rounded-lg"><p className="text-xs opacity-70">光臨</p><b>{c.visits}</b></div>
+                                                <div className="bg-amber-50 text-amber-600 p-2 rounded-lg"><p className="text-xs opacity-70">遲到</p><b>{c.late}</b></div>
+                                                <div className="bg-stone-100 text-stone-500 p-2 rounded-lg"><p className="text-xs opacity-70">放鳥</p><b>{c.noshow}</b></div>
+                                            </div>
+                                            <details className="p-3 bg-rose-50/30 text-sm group">
+                                                <summary className="cursor-pointer text-xs text-rose-400 font-bold flex items-center gap-1">歷史紀錄 ({c.history.length}) <ChevronRight size={12} className="group-open:rotate-90 transition-transform"/></summary>
+                                                <div className="mt-2 space-y-2 max-h-60 overflow-y-auto">
+                                                    {c.history.map(h => (
+                                                        <div key={h.id} className="bg-white p-2 rounded border border-rose-100 shadow-sm text-xs">
+                                                            <div className="flex justify-between font-bold text-gray-700"><span>{h.date} <span className="bg-rose-50 px-1 rounded font-mono font-normal text-rose-400">{h.time}</span></span><span>${h.amount}</span></div>
+                                                            <div className="flex justify-between mt-1 text-gray-500"><span>{h.serviceItem}</span><span className={`px-1 rounded ${h.status==='booked'?'bg-blue-50 text-blue-500':h.status==='noshow'?'bg-stone-100 line-through':''}`}>{STATUS.find(s=>s.id===h.status)?.label}</span></div>
+                                                            {h.deposit>0 && <div className="text-orange-500 mt-1 flex gap-1"><Coins size={10}/> 訂 ${h.deposit} (餘 ${h.amount-h.deposit})</div>}
+                                                            {h.eyeShape && <div className="mt-1 pt-1 border-t border-rose-50 text-gray-400 flex gap-1"><Eye size={10}/> {h.eyeShape}</div>}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </details>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
 
-                  <div>
-                    <label className="block text-xs font-bold text-gray-500 mb-1">嫁接項目</label>
-                    <input 
-                      type="text" 
-                      placeholder="例：山茶花 400根"
-                      value={formData.serviceItem}
-                      onChange={e => setFormData({...formData, serviceItem: e.target.value})}
-                      className="w-full p-2 border border-rose-200 rounded-lg focus:ring-2 focus:ring-rose-400 outline-none text-gray-700 bg-white" 
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-xs font-bold text-gray-500 mb-1">眼型紀錄 / 備註</label>
-                    <textarea 
-                      rows="2"
-                      value={formData.eyeShape}
-                      onChange={e => setFormData({...formData, eyeShape: e.target.value})}
-                      className="w-full p-2 border border-rose-200 rounded-lg focus:ring-2 focus:ring-rose-400 outline-none resize-none text-gray-700 bg-white" 
-                    />
-                  </div>
-                </>
-              )}
+                        {/* TAB: 財務 */}
+                        {tab === 'finance' && (
+                            <div className="animate-fadeIn space-y-4">
+                                <div className="flex justify-between items-center bg-white p-3 rounded-2xl shadow-sm border border-rose-100">
+                                    <button onClick={() => setDate(new Date(date.setMonth(date.getMonth()-1)))} className="p-2 text-rose-400"><ChevronLeft/></button>
+                                    <div className="text-center"><p className="text-xs text-rose-400">財務報表</p><h2 className="text-lg font-bold text-[#8a4a58]">{date.getFullYear()} / {date.getMonth()+1}</h2></div>
+                                    <button onClick={() => setDate(new Date(date.setMonth(date.getMonth()+1)))} className="p-2 text-rose-400"><ChevronRight/></button>
+                                </div>
+                                {stats.projected > 0 && <div className="bg-blue-50 text-blue-600 p-3 rounded-2xl border border-blue-100 flex justify-between font-bold shadow-sm"><span className="flex items-center gap-1 text-sm"><CalendarClock size={16}/> 預估 (預約)</span><span>${stats.projected.toLocaleString()}</span></div>}
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="bg-white p-4 rounded-2xl border-l-4 border-emerald-400 shadow-sm"><p className="text-xs text-gray-400">本月實收</p><p className="text-xl font-bold text-emerald-600">${stats.income.toLocaleString()}</p></div>
+                                    <div className="bg-white p-4 rounded-2xl border-l-4 border-rose-400 shadow-sm"><p className="text-xs text-gray-400">本月總支出</p><p className="text-xl font-bold text-rose-500">${stats.expense.toLocaleString()}</p></div>
+                                    <div className="col-span-2 bg-[#bc6c7e] text-white p-4 rounded-2xl shadow-sm flex justify-between items-center"><span>本月淨利</span><span className="text-2xl font-bold">${stats.balance.toLocaleString()}</span></div>
+                                </div>
+                                <div className="bg-white rounded-2xl shadow-sm border border-rose-100 p-2 space-y-2">
+                                    {stats.list.map(l => (
+                                        <div key={l.id} className="flex justify-between items-center p-2 border-b border-rose-50 last:border-0 text-sm">
+                                            <div className="flex gap-3 items-center"><span className="text-rose-300 w-10 text-xs">{l.date.slice(5)}</span><div><p className="font-bold text-gray-700">{l.type==='income'?l.name:l.expenseItem}</p><p className="text-xs text-gray-400">{l.status==='booked'?'預約中':l.status==='noshow'?'已放鳥':''}</p></div></div>
+                                            <div className="flex items-center gap-2">
+                                                <span className={`font-bold ${l.type==='income'?'text-emerald-600':'text-rose-500'}`}>{l.type==='income'?'+':'-'}${l.amount}</span>
+                                                <button onClick={()=>setModal({type:'edit',data:l})} className="text-rose-300"><Edit2 size={12}/></button>
+                                                <button onClick={()=>setModal({type:'delete',data:l})} className="text-rose-200"><Trash2 size={12}/></button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
 
-              {recordType === 'expense' && (
-                <div>
-                   <label className="block text-xs font-bold text-gray-500 mb-1">支出項目說明</label>
-                   <input 
-                      type="text" 
-                      required
-                      placeholder="例：房租、材料費"
-                      value={formData.expenseItem}
-                      onChange={e => setFormData({...formData, expenseItem: e.target.value})}
-                      className="w-full p-2 border border-rose-200 rounded-lg focus:ring-2 focus:ring-rose-400 outline-none text-gray-700 bg-white" 
-                    />
+                    {/* Nav Bar */}
+                    <div className="fixed bottom-0 w-full bg-white/90 backdrop-blur-md border-t border-rose-100 flex justify-around py-2 pb-5 z-30">
+                        {[{id:'calendar',icon:CalendarIcon,label:'月曆'},{id:'customers',icon:User,label:'客戶'},{id:'finance',icon:DollarSign,label:'財務'}].map(t => (
+                            <button key={t.id} onClick={()=>setTab(t.id)} className={`flex flex-col items-center gap-1 text-xs font-medium transition-colors ${tab===t.id?'text-[#bc6c7e]':'text-rose-200'}`}><t.icon size={24}/>{t.label}</button>
+                        ))}
+                    </div>
+
+                    {/* --- Modals --- */}
+                    
+                    {/* Add / Edit Form */}
+                    {(modal.type === 'add' || modal.type === 'edit') && (
+                        <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fadeIn backdrop-blur-sm">
+                            <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl max-h-[95vh] overflow-y-auto shadow-2xl p-5 space-y-4">
+                                <div className="flex justify-between items-center"><h2 className="font-bold text-lg text-[#8a4a58]">{modal.type==='add'?'新增':'編輯'}</h2><button onClick={()=>setModal({type:null})}><X className="text-rose-300"/></button></div>
+                                <form onSubmit={saveRecord} className="space-y-4">
+                                    <div className="hidden"><input name="id" defaultValue={modal.data?.id} /></div>
+                                    
+                                    {/* Type Switcher */}
+                                    <div className="bg-rose-50 p-1 rounded-xl flex" x-data="{type:'income'}">
+                                        {['income','expense'].map(t => (
+                                            <label key={t} className="flex-1 cursor-pointer">
+                                                <input type="radio" name="type" value={t} className="peer hidden" defaultChecked={modal.data?.type ? modal.data.type===t : t==='income'} 
+                                                    onChange={e=>{ const form = e.target.form; form.querySelectorAll('.income-field').forEach(el=>el.style.display=t==='income'?'block':'none'); form.querySelectorAll('.expense-field').forEach(el=>el.style.display=t==='expense'?'block':'none'); }}
+                                                />
+                                                <div className="py-2 text-center text-sm font-bold text-rose-300 rounded-lg peer-checked:bg-white peer-checked:text-[#bc6c7e] peer-checked:shadow-sm transition-all">{t==='income'?'客戶服務':'店務支出'}</div>
+                                            </label>
+                                        ))}
+                                    </div>
+
+                                    <div className="flex gap-4">
+                                        <div className="flex-1"><label className="text-xs font-bold text-gray-400">日期</label><input type="date" name="date" required defaultValue={modal.data?.date || new Date().toISOString().split('T')[0]} className="w-full p-2 border border-rose-200 rounded-lg bg-white"/></div>
+                                        <div className="flex-1 income-field" style={{display: (modal.data?.type||'income')==='income'?'block':'none'}}><label className="text-xs font-bold text-gray-400">時間</label><input type="time" name="time" defaultValue={modal.data?.time || '10:00'} className="w-full p-2 border border-rose-200 rounded-lg bg-white"/></div>
+                                    </div>
+
+                                    <div className="income-field" style={{display: (modal.data?.type||'income')==='income'?'block':'none'}}>
+                                        <label className="text-xs font-bold text-gray-400">總金額 (含訂)</label>
+                                        <input type="number" name="amount" inputMode="numeric" pattern="[0-9]*" placeholder="0" required defaultValue={modal.data?.amount} className="w-full p-2 border border-rose-200 rounded-lg text-lg font-bold bg-white text-gray-700"/>
+                                    </div>
+                                    <div className="expense-field" style={{display: (modal.data?.type||'income')==='expense'?'block':'none'}}>
+                                        <label className="text-xs font-bold text-gray-400">支出金額</label>
+                                        <input type="number" name="amount" inputMode="numeric" pattern="[0-9]*" placeholder="0" defaultValue={modal.data?.amount} className="w-full p-2 border border-rose-200 rounded-lg text-lg font-bold bg-white text-gray-700"/>
+                                    </div>
+
+                                    <div className="income-field space-y-4" style={{display: (modal.data?.type||'income')==='income'?'block':'none'}}>
+                                        <div className="flex gap-4">
+                                            <div className="flex-1"><label className="text-xs font-bold text-gray-400">姓名</label><input name="name" required defaultValue={modal.data?.name} placeholder="王小美" className="w-full p-2 border border-rose-200 rounded-lg bg-white"/></div>
+                                            <div className="flex-1"><label className="text-xs font-bold text-gray-400">電話</label><input name="phone" type="tel" inputMode="numeric" defaultValue={modal.data?.phone} placeholder="09..." className="w-full p-2 border border-rose-200 rounded-lg bg-white"/></div>
+                                        </div>
+                                        
+                                        <div className="bg-orange-50 p-3 rounded-xl border border-orange-100">
+                                            <label className="text-xs font-bold text-orange-600 flex gap-1 items-center"><Coins size={12}/> 訂金 (已收)</label>
+                                            <input type="number" name="deposit" inputMode="numeric" pattern="[0-9]*" placeholder="0" defaultValue={modal.data?.deposit} className="w-full p-2 mt-1 border border-orange-200 rounded-lg bg-white"/>
+                                        </div>
+
+                                        <div>
+                                            <label className="text-xs font-bold text-gray-400">狀態</label>
+                                            <div className="grid grid-cols-2 gap-2 mt-1">
+                                                {STATUS.map(s => (
+                                                    <label key={s.id} className="cursor-pointer">
+                                                        <input type="radio" name="status" value={s.id} className="peer hidden" defaultChecked={modal.data?.status ? modal.data.status===s.id : s.id==='booked'}/>
+                                                        <div className="py-2 text-xs font-bold text-center border border-rose-100 rounded-lg text-gray-400 peer-checked:bg-white peer-checked:border-rose-300 peer-checked:text-[#bc6c7e] peer-checked:shadow-sm flex items-center justify-center gap-1 transition-all"><s.icon size={12}/> {s.label}</div>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <div><label className="text-xs font-bold text-gray-400">項目</label><input name="serviceItem" defaultValue={modal.data?.serviceItem} placeholder="山茶花 400根" className="w-full p-2 border border-rose-200 rounded-lg bg-white"/></div>
+                                        <div><label className="text-xs font-bold text-gray-400">備註/眼型</label><textarea name="eyeShape" defaultValue={modal.data?.eyeShape} rows="2" className="w-full p-2 border border-rose-200 rounded-lg bg-white resize-none"/></div>
+                                    </div>
+
+                                    <div className="expense-field" style={{display: (modal.data?.type||'income')==='expense'?'block':'none'}}>
+                                        <label className="text-xs font-bold text-gray-400">支出說明</label>
+                                        <input name="expenseItem" defaultValue={modal.data?.expenseItem} placeholder="房租、材料" className="w-full p-2 border border-rose-200 rounded-lg bg-white"/>
+                                    </div>
+
+                                    <button type="submit" className={`w-full py-3 ${THEME.primary} rounded-xl font-bold shadow-lg active:scale-95 transition-transform`}>儲存記錄</button>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Settings Modal */}
+                    {modal.type === 'settings' && (
+                        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-6 backdrop-blur-sm animate-fadeIn">
+                            <div className="bg-white w-full max-w-xs rounded-2xl shadow-xl p-6 space-y-4">
+                                <h3 className="font-bold text-lg text-[#8a4a58] flex items-center gap-2"><Settings size={20}/> 資料設定</h3>
+                                <button onClick={handleExport} className="w-full py-3 bg-rose-50 text-rose-600 rounded-xl font-bold flex items-center justify-center gap-2"><Download size={18}/> 匯出備份</button>
+                                <div className="relative">
+                                    <input type="file" onChange={handleImport} className="hidden" ref={fileRef} accept=".json"/>
+                                    <button onClick={()=>fileRef.current.click()} className="w-full py-3 bg-gray-50 text-gray-600 rounded-xl font-bold flex items-center justify-center gap-2"><Upload size={18}/> 匯入資料</button>
+                                </div>
+                                <button onClick={()=>setModal({type:null})} className="w-full py-3 text-gray-400">關閉</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Confirm Modal */}
+                    {modal.type === 'confirm' && (
+                        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-6 backdrop-blur-sm animate-fadeIn">
+                            <div className="bg-white w-full max-w-xs rounded-2xl shadow-xl overflow-hidden text-center">
+                                <div className="bg-emerald-500 p-4 text-white"><CheckCircle size={40} className="mx-auto mb-2 opacity-90"/><h3 className="font-bold">確認完工收款？</h3></div>
+                                <div className="p-6">
+                                    <p className="text-xl font-bold text-gray-800">{modal.data.name}</p>
+                                    <p className="text-2xl font-bold text-emerald-600 mt-2">${modal.data.amount}</p>
+                                    {modal.data.deposit > 0 && <p className="text-xs text-orange-500 mt-1">尾款: ${modal.data.amount - modal.data.deposit}</p>}
+                                </div>
+                                <div className="flex border-t"><button onClick={()=>setModal({type:null})} className="flex-1 py-3 text-gray-500">取消</button><button onClick={doComplete} className="flex-1 py-3 bg-emerald-50 text-emerald-600 font-bold border-l">確定</button></div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Delete Modal */}
+                    {modal.type === 'delete' && (
+                        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-6 backdrop-blur-sm animate-fadeIn">
+                            <div className="bg-white w-full max-w-xs rounded-2xl shadow-xl overflow-hidden text-center">
+                                <div className="bg-rose-400 p-4 text-white"><AlertTriangle size={40} className="mx-auto mb-2 opacity-90"/><h3 className="font-bold">確定刪除？</h3></div>
+                                <div className="p-6"><p className="text-lg font-bold">{modal.data.name||modal.data.expenseItem}</p><p className="text-sm text-gray-400 mt-1">刪除後無法復原</p></div>
+                                <div className="flex border-t"><button onClick={()=>setModal({type:null})} className="flex-1 py-3 text-gray-500">取消</button><button onClick={doDelete} className="flex-1 py-3 bg-rose-50 text-rose-500 font-bold border-l">刪除</button></div>
+                            </div>
+                        </div>
+                    )}
                 </div>
-              )}
+            );
+        }
 
-              <button type="submit" className={`w-full py-3 ${THEME.primary} rounded-xl font-bold shadow-lg active:scale-95 transition-transform`}>
-                儲存記錄
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
