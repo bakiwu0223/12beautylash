@@ -4,16 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>12 Beauty Studio</title>
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- React & ReactDOM (UMD) -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <!-- Babel -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <style>
         body { -webkit-tap-highlight-color: transparent; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-        input, textarea, select { font-size: 16px !important; } /* 防止 iOS 縮放 */
+        input, textarea, select { font-size: 16px !important; }
         ::-webkit-scrollbar { width: 0px; background: transparent; }
     </style>
 </head>
@@ -23,7 +20,7 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
-        // --- SVG 圖示組件 ---
+        // --- 內建圖示庫 ---
         const Icon = ({ d, children, size = 24, className = "", ...props }) => (
             <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>{d ? <path d={d} /> : children}</svg>
         );
@@ -55,7 +52,7 @@
             Chat: (p) => <Icon {...p}><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></Icon>,
             Quiet: (p) => <Icon {...p}><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></Icon>,
             Smile: (p) => <Icon d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" {...p} />,
-            Activity: (p) => <Icon d="M22 12h-4l-3 9L9 3l-3 9H2" {...p} />
+            Database: (p) => <Icon d="M3 5V19A9 3 0 0 0 21 19V5" {...p}><path d="M3 5A9 3 0 0 1 21 5 9 3 0 0 1 3 5"/><path d="M21 12A9 3 0 0 1 3 12"/></Icon>
         };
 
         const THEME = {
@@ -79,6 +76,18 @@
             { id: 'either', label: '都可以', icon: Icons.Smile, color: 'text-emerald-500 bg-emerald-50 border-emerald-200' },
         ];
 
+        // 歷史資料庫 KEY (救援用)
+        const DB_KEYS = [
+            'beauty_studio_master_db', // 最新
+            'beauty_app_data_v7', 
+            'beauty_app_data_v6', 
+            'beauty_app_data_v5', 
+            'beauty_app_data_v4', 
+            'beauty_app_data_v3', 
+            'beauty_app_data_v2', 
+            'beauty_app_data'
+        ];
+
         // --- 小元件 ---
         const StatBadge = ({ icon: Icon, label, value, colorClass }) => (
             <div className={`flex flex-col items-center justify-center p-2 rounded-lg ${colorClass} bg-opacity-20 border border-opacity-10`}>
@@ -88,12 +97,21 @@
         );
 
         function App() {
-            // LocalStorage: 讀取
+            // [資料讀取邏輯] 自動搜尋所有可能的舊資料庫
             const [records, setRecords] = useState(() => {
-                try {
-                    const saved = localStorage.getItem('beauty_app_data_v7');
-                    return saved ? JSON.parse(saved) : [];
-                } catch (e) { return []; }
+                for (const key of DB_KEYS) {
+                    try {
+                        const raw = localStorage.getItem(key);
+                        if (raw) {
+                            const data = JSON.parse(raw);
+                            if (Array.isArray(data) && data.length > 0) {
+                                console.log(`已成功從 ${key} 恢復資料`);
+                                return data;
+                            }
+                        }
+                    } catch (e) {}
+                }
+                return [];
             });
 
             const [loading, setLoading] = useState(true);
@@ -106,7 +124,11 @@
             const fileRef = useRef(null);
 
             useEffect(() => { setTimeout(() => setLoading(false), 300); }, []);
-            useEffect(() => { localStorage.setItem('beauty_app_data_v7', JSON.stringify(records)); }, [records]);
+            
+            // 存檔時統一存到 'beauty_studio_master_db'
+            useEffect(() => { 
+                localStorage.setItem('beauty_studio_master_db', JSON.stringify(records)); 
+            }, [records]);
 
             // [邏輯] 月曆
             const calendarData = useMemo(() => {
@@ -141,7 +163,7 @@
                     
                     if (r.status === 'normal' || r.status === 'late') { map[key].visits++; map[key].total += Number(r.amount); }
                     if (r.status === 'late') map[key].late++;
-                    if (r.status === 'noshow') map[key].noshow++; // 統計放鳥次數
+                    if (r.status === 'noshow') map[key].noshow++;
                     
                     if (r.chatPref && r.date >= map[key].lastVisit) {
                         map[key].chatPref = r.chatPref;
@@ -154,15 +176,15 @@
                 return term ? Object.values(map).filter(c => (c.name||'').toLowerCase().includes(term) || (c.phone||'').includes(term)) : Object.values(map);
             }, [records, search]);
 
-            // [邏輯] 財務 (進階計算)
+            // [邏輯] 財務
             const stats = useMemo(() => {
                 const prefix = date.toISOString().slice(0, 7);
                 const monthRecs = records.filter(r => r.date.startsWith(prefix));
                 
-                let collected = 0;   // 實收 (已入口袋)
-                let outstanding = 0; // 應收 (尾款)
-                let expense = 0;     // 支出
-                let loss = 0;        // 損失 (放鳥)
+                let collected = 0;   
+                let outstanding = 0; 
+                let expense = 0;     
+                let loss = 0;        
 
                 monthRecs.forEach(r => {
                     const amt = Number(r.amount || 0);
@@ -171,18 +193,18 @@
                     } else if (r.type === 'income') {
                         const dep = Number(r.deposit || 0);
                         if (r.status === 'normal' || r.status === 'late') {
-                            collected += amt; // 已完成：全額計入實收
+                            collected += amt; 
                         } else if (r.status === 'booked') {
-                            collected += dep; // 預約中：只計訂金
-                            outstanding += (amt - dep); // 尾款計入應收
+                            collected += dep; 
+                            outstanding += (amt - dep); 
                         } else if (r.status === 'noshow') {
-                            loss += amt; // 放鳥：計入損失，不計收入
+                            loss += amt; 
                         }
                     }
                 });
 
-                const potential = collected + outstanding; // 預計總收 = 實收 + 應收
-                const balance = collected - expense; // 淨現金流
+                const potential = collected + outstanding; 
+                const balance = collected - expense; 
 
                 monthRecs.sort((a,b) => new Date(b.date) - new Date(a.date));
                 return { collected, outstanding, potential, expense, balance, loss, list: monthRecs };
@@ -279,6 +301,23 @@
                 e.target.value = '';
             };
 
+            // 手動救援功能
+            const manualRescue = (key) => {
+                try {
+                    const raw = localStorage.getItem(key);
+                    if(raw) {
+                        const data = JSON.parse(raw);
+                        if(Array.isArray(data) && confirm(`確定從 [${key}] 還原 ${data.length} 筆資料嗎？目前的資料將被覆蓋。`)) {
+                            setRecords(data);
+                            alert("還原成功！");
+                            setModal({type:null});
+                        }
+                    } else {
+                        alert("該版本沒有資料");
+                    }
+                } catch(e) { alert("讀取錯誤"); }
+            };
+
             const handleMonthChange = (dir) => {
                 const d = new Date(date); d.setMonth(d.getMonth() + dir);
                 setDate(d); setSelDate(null);
@@ -362,7 +401,7 @@
                             <div className="animate-fadeIn space-y-4">
                                 <div className="relative"><Icons.Search className="absolute left-3 top-2.5 text-rose-300" size={18}/><input type="text" placeholder="搜尋..." value={search} onChange={e=>setSearch(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-white border border-rose-200 rounded-xl outline-none focus:ring-2 focus:ring-rose-300"/></div>
                                 <div className="grid gap-4">
-                                    {customers.map((c, i) => (
+                                    {customers.length === 0 ? <p className="text-center text-rose-300 py-10">找不到相符的資料</p> : customers.map((c, i) => (
                                         <div key={i} className="bg-white rounded-2xl shadow-sm border border-rose-100 overflow-hidden">
                                             <div className="p-4 bg-[#f4e3e6] flex justify-between items-center">
                                                 <div className="flex items-center gap-3">
@@ -405,7 +444,7 @@
                             </div>
                         )}
 
-                        {/* TAB: Finance (進階報表) */}
+                        {/* TAB: Finance */}
                         {tab === 'finance' && (
                             <div className="animate-fadeIn space-y-4">
                                 <div className="flex justify-between items-center bg-white p-3 rounded-2xl shadow-sm border border-rose-100">
@@ -414,7 +453,6 @@
                                     <button onClick={() => handleMonthChange(1)} className="p-2 text-rose-400"><Icons.Right/></button>
                                 </div>
                                 
-                                {/* 財務總覽卡片 */}
                                 <div className="bg-white rounded-2xl shadow-sm border border-rose-100 overflow-hidden">
                                     <div className="p-4 bg-gradient-to-r from-[#bc6c7e] to-[#a85e6f] text-white">
                                         <p className="text-xs opacity-80 mb-1">預計總收入 (含未收尾款)</p>
@@ -536,8 +574,8 @@
                         </div>
                     )}
 
-                    {/* Settings / Confirm / Delete Modals */}
-                    {modal.type === 'settings' && <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-6 backdrop-blur-sm animate-fadeIn"><div className="bg-white w-full max-w-xs rounded-2xl shadow-xl p-6 space-y-4"><h3 className="font-bold text-lg text-[#8a4a58] flex items-center gap-2"><Icons.Settings size={20}/> 資料設定</h3><button onClick={handleExport} className="w-full py-3 bg-rose-50 text-rose-600 rounded-xl font-bold flex items-center justify-center gap-2"><Icons.Download size={18}/> 匯出備份</button><div className="relative"><input type="file" onChange={handleImport} className="hidden" ref={fileRef} accept=".json"/><button onClick={()=>fileRef.current.click()} className="w-full py-3 bg-gray-50 text-gray-600 rounded-xl font-bold flex items-center justify-center gap-2"><Icons.Upload size={18}/> 匯入資料</button></div><button onClick={()=>setModal({type:null})} className="w-full py-3 text-gray-400">關閉</button></div></div>}
+                    {/* Settings Modal (含資料救援) */}
+                    {modal.type === 'settings' && <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-6 backdrop-blur-sm animate-fadeIn"><div className="bg-white w-full max-w-xs rounded-2xl shadow-xl p-6 space-y-4"><h3 className="font-bold text-lg text-[#8a4a58] flex items-center gap-2"><Icons.Settings size={20}/> 資料設定</h3><button onClick={handleExport} className="w-full py-3 bg-rose-50 text-rose-600 rounded-xl font-bold flex items-center justify-center gap-2"><Icons.Download size={18}/> 匯出備份</button><div className="relative"><input type="file" onChange={handleImport} className="hidden" ref={fileRef} accept=".json"/><button onClick={()=>fileRef.current.click()} className="w-full py-3 bg-gray-50 text-gray-600 rounded-xl font-bold flex items-center justify-center gap-2"><Icons.Upload size={18}/> 匯入資料</button></div><hr className="border-rose-100"/><div className="text-xs text-center text-gray-400">🛠️ 舊資料手動還原 (慎用)</div><div className="grid grid-cols-2 gap-2">{DB_KEYS.map(k => <button key={k} onClick={()=>manualRescue(k)} className="text-[10px] bg-stone-50 border border-stone-100 py-1 rounded text-stone-500 truncate">{k.replace('beauty_app_data_', '')}</button>)}</div><button onClick={()=>setModal({type:null})} className="w-full py-3 text-gray-400">關閉</button></div></div>}
                     {modal.type === 'confirm' && <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-6 backdrop-blur-sm animate-fadeIn"><div className="bg-white w-full max-w-xs rounded-2xl shadow-xl overflow-hidden text-center"><div className="bg-emerald-500 p-4 text-white"><Icons.Check size={40} className="mx-auto mb-2 opacity-90"/><h3 className="font-bold">確認完工收款？</h3></div><div className="p-6"><p className="text-xl font-bold text-gray-800">{modal.data.name}</p><p className="text-2xl font-bold text-emerald-600 mt-2">${modal.data.amount}</p></div><div className="flex border-t"><button onClick={()=>setModal({type:null})} className="flex-1 py-3 text-gray-500">取消</button><button onClick={doComplete} className="flex-1 py-3 bg-emerald-50 text-emerald-600 font-bold border-l">確定</button></div></div></div>}
                     {modal.type === 'delete' && <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-6 backdrop-blur-sm animate-fadeIn"><div className="bg-white w-full max-w-xs rounded-2xl shadow-xl overflow-hidden text-center"><div className="bg-rose-400 p-4 text-white"><Icons.Warn size={40} className="mx-auto mb-2 opacity-90"/><h3 className="font-bold">確定刪除？</h3></div><div className="p-6"><p className="text-lg font-bold">{modal.data.name||modal.data.expenseItem}</p><p className="text-sm text-gray-400 mt-1">刪除後無法復原</p></div><div className="flex border-t"><button onClick={()=>setModal({type:null})} className="flex-1 py-3 text-gray-500">取消</button><button onClick={doDelete} className="flex-1 py-3 bg-rose-50 text-rose-500 font-bold border-l">刪除</button></div></div></div>}
                 </div>
@@ -549,3 +587,5 @@
     </script>
 </body>
 </html>
+
+
