@@ -52,10 +52,10 @@
             Edit: (p) => <Icon d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" {...p} />,
             Warn: (p) => <Icon d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01" {...p} />,
             CheckSmall: (p) => <Icon d="M20 6 9 17l-5-5" {...p} />,
-            // 新增: 聊天偏好圖示
             Chat: (p) => <Icon {...p}><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></Icon>,
             Quiet: (p) => <Icon {...p}><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></Icon>,
-            Smile: (p) => <Icon d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" {...p} />
+            Smile: (p) => <Icon d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" {...p} />,
+            Activity: (p) => <Icon d="M22 12h-4l-3 9L9 3l-3 9H2" {...p} />
         };
 
         const THEME = {
@@ -73,7 +73,6 @@
             { id: 'noshow', label: '放鳥', color: 'bg-stone-100 text-stone-500', icon: Icons.Cross },
         ];
 
-        // 聊天偏好選項
         const CHAT_PREFS = [
             { id: 'chat', label: '喜歡聊天', icon: Icons.Chat, color: 'text-rose-500 bg-rose-50 border-rose-200' },
             { id: 'quiet', label: '需要安靜', icon: Icons.Quiet, color: 'text-indigo-500 bg-indigo-50 border-indigo-200' },
@@ -92,7 +91,7 @@
             // LocalStorage: 讀取
             const [records, setRecords] = useState(() => {
                 try {
-                    const saved = localStorage.getItem('beauty_app_data_v6');
+                    const saved = localStorage.getItem('beauty_app_data_v7');
                     return saved ? JSON.parse(saved) : [];
                 } catch (e) { return []; }
             });
@@ -100,18 +99,14 @@
             const [loading, setLoading] = useState(true);
             const [tab, setTab] = useState('calendar'); 
             const [modal, setModal] = useState({ type: null, data: null });
-            
-            // 表單狀態
             const [formData, setFormData] = useState({});
-            
             const [date, setDate] = useState(new Date());
             const [selDate, setSelDate] = useState(null); 
             const [search, setSearch] = useState('');
             const fileRef = useRef(null);
 
             useEffect(() => { setTimeout(() => setLoading(false), 300); }, []);
-            // LocalStorage: 存檔
-            useEffect(() => { localStorage.setItem('beauty_app_data_v6', JSON.stringify(records)); }, [records]);
+            useEffect(() => { localStorage.setItem('beauty_app_data_v7', JSON.stringify(records)); }, [records]);
 
             // [邏輯] 月曆
             const calendarData = useMemo(() => {
@@ -127,70 +122,76 @@
 
             const selDayDetails = useMemo(() => selDate ? (calendarData.find(d => d && d.date === selDate) || { date: selDate, items: [] }) : null, [selDate, calendarData]);
 
-            // [邏輯] 客戶名單 (搜尋與聊天偏好修復版)
+            // [邏輯] 客戶名單
             const customers = useMemo(() => {
                 const map = {};
                 records.forEach(r => {
                     if (r.type !== 'income') return;
-                    
-                    // 防呆：確保 key 不為 null/undefined
-                    const safeName = r.name ? String(r.name).trim() : '未命名客戶';
+                    const safeName = r.name ? String(r.name).trim() : '未命名';
                     const safePhone = r.phone ? String(r.phone).trim() : '';
                     const key = safePhone || safeName;
 
                     if (!map[key]) {
                         map[key] = { 
-                            name: safeName, 
-                            phone: safePhone, 
+                            name: safeName, phone: safePhone, 
                             visits: 0, late: 0, noshow: 0, total: 0, history: [],
-                            chatPref: 'either', // 預設
-                            lastVisit: ''
+                            chatPref: 'either', lastVisit: ''
                         };
                     }
                     
                     if (r.status === 'normal' || r.status === 'late') { map[key].visits++; map[key].total += Number(r.amount); }
                     if (r.status === 'late') map[key].late++;
-                    if (r.status === 'noshow') map[k].noshow++;
+                    if (r.status === 'noshow') map[key].noshow++; // 統計放鳥次數
                     
-                    // 更新聊天偏好：取最近一次有紀錄的偏好
                     if (r.chatPref && r.date >= map[key].lastVisit) {
                         map[key].chatPref = r.chatPref;
                         map[key].lastVisit = r.date;
                     }
-
                     map[key].history.push(r);
                 });
-
-                // 排序歷史紀錄 (新到舊)
                 Object.values(map).forEach(c => c.history.sort((a,b) => new Date(b.date) - new Date(a.date)));
-
-                // 搜尋邏輯 (嚴格字串檢查)
                 const term = search.trim().toLowerCase();
-                if (!term) return Object.values(map); // 沒搜尋時回傳全部
-
-                return Object.values(map).filter(c => 
-                    (c.name || '').toLowerCase().includes(term) || 
-                    (c.phone || '').includes(term)
-                );
+                return term ? Object.values(map).filter(c => (c.name||'').toLowerCase().includes(term) || (c.phone||'').includes(term)) : Object.values(map);
             }, [records, search]);
 
-            // [邏輯] 財務
+            // [邏輯] 財務 (進階計算)
             const stats = useMemo(() => {
                 const prefix = date.toISOString().slice(0, 7);
                 const monthRecs = records.filter(r => r.date.startsWith(prefix));
-                const income = monthRecs.filter(r => r.type === 'income' && (r.status === 'normal' || r.status === 'late')).reduce((s, r) => s + Number(r.amount), 0);
-                const expense = monthRecs.filter(r => r.type === 'expense').reduce((s, r) => s + Number(r.amount), 0);
-                const projected = monthRecs.filter(r => r.type === 'income' && r.status === 'booked').reduce((s, r) => s + Number(r.amount), 0);
+                
+                let collected = 0;   // 實收 (已入口袋)
+                let outstanding = 0; // 應收 (尾款)
+                let expense = 0;     // 支出
+                let loss = 0;        // 損失 (放鳥)
+
+                monthRecs.forEach(r => {
+                    const amt = Number(r.amount || 0);
+                    if (r.type === 'expense') {
+                        expense += amt;
+                    } else if (r.type === 'income') {
+                        const dep = Number(r.deposit || 0);
+                        if (r.status === 'normal' || r.status === 'late') {
+                            collected += amt; // 已完成：全額計入實收
+                        } else if (r.status === 'booked') {
+                            collected += dep; // 預約中：只計訂金
+                            outstanding += (amt - dep); // 尾款計入應收
+                        } else if (r.status === 'noshow') {
+                            loss += amt; // 放鳥：計入損失，不計收入
+                        }
+                    }
+                });
+
+                const potential = collected + outstanding; // 預計總收 = 實收 + 應收
+                const balance = collected - expense; // 淨現金流
+
                 monthRecs.sort((a,b) => new Date(b.date) - new Date(a.date));
-                return { income, expense, projected, balance: income - expense, list: monthRecs };
+                return { collected, outstanding, potential, expense, balance, loss, list: monthRecs };
             }, [records, date]);
 
-            // [操作] 儲存
+            // [操作]
             const handleSave = (e) => {
                 e.preventDefault();
                 const isEdit = modal.type === 'edit';
-                
-                // 強制轉換數字
                 const amt = formData.amount === '' ? 0 : Number(formData.amount);
                 const dep = formData.deposit === '' ? 0 : Number(formData.deposit);
 
@@ -206,7 +207,7 @@
                     serviceItem: formData.type === 'income' ? (formData.serviceItem || '') : '',
                     eyeShape: formData.type === 'income' ? (formData.eyeShape || '') : '',
                     status: formData.type === 'income' ? (formData.status || 'booked') : '',
-                    chatPref: formData.type === 'income' ? (formData.chatPref || 'either') : '', // 新增欄位
+                    chatPref: formData.type === 'income' ? (formData.chatPref || 'either') : '',
                     expenseItem: formData.type === 'expense' ? (formData.expenseItem || '雜支') : '',
                     createdAt: new Date().toISOString()
                 };
@@ -215,13 +216,9 @@
                 setModal({ type: null });
             };
 
-            const handleInput = (key, val) => {
-                setFormData(prev => ({ ...prev, [key]: val }));
-            };
+            const handleInput = (key, val) => setFormData(prev => ({ ...prev, [key]: val }));
 
-            // 預約資料帶入 (智能記憶偏好)
             const openAdd = () => {
-                // 嘗試從客戶名單中找該號碼的上次偏好 (若有輸入電話後) -> 這裡先預設 default
                 setFormData({
                     type: 'income', date: new Date().toISOString().split('T')[0], time: '10:00',
                     amount: '', deposit: '', name: '', phone: '', serviceItem: '', eyeShape: '',
@@ -244,6 +241,15 @@
                 setRecords(p => p.map(r => r.id === modal.data.id ? { ...r, status: 'normal' } : r));
                 setModal({ type: null });
             };
+
+            const handlePhoneBlur = () => {
+                if(formData.phone && formData.type === 'income'){
+                    const found = records.find(r => r.phone === formData.phone && r.chatPref);
+                    if(found){
+                        setFormData(prev => ({...prev, chatPref: found.chatPref || 'either', name: prev.name || found.name}));
+                    }
+                }
+            }
 
             const handleExport = () => {
                 const link = document.createElement('a');
@@ -277,16 +283,6 @@
                 const d = new Date(date); d.setMonth(d.getMonth() + dir);
                 setDate(d); setSelDate(null);
             };
-
-            // 自動根據電話填入歷史偏好
-            const handlePhoneBlur = () => {
-                if(formData.phone && formData.type === 'income'){
-                    const found = records.find(r => r.phone === formData.phone && r.chatPref);
-                    if(found && found.chatPref){
-                        setFormData(prev => ({...prev, chatPref: found.chatPref, name: prev.name || found.name})); // 自動帶入名字和偏好
-                    }
-                }
-            }
 
             if (loading) return <div className="h-screen flex items-center justify-center text-rose-300 font-bold"><Icons.Loader className="animate-spin mr-2"/> 載入中...</div>;
 
@@ -346,7 +342,7 @@
                                                     </div>
                                                 </div>
                                                 <div className="text-right space-y-1">
-                                                    <p className={`font-mono font-bold ${it.type==='income'?'text-emerald-600':'text-rose-500'}`}>${it.amount}</p>
+                                                    <p className={`font-mono font-bold ${it.status==='noshow'?'text-stone-400 line-through':it.type==='income'?'text-emerald-600':'text-rose-500'}`}>${it.amount}</p>
                                                     {it.type==='income' && it.deposit>0 && <p className="text-[10px] text-gray-400">餘: ${it.amount-it.deposit}</p>}
                                                     <div className="flex justify-end gap-2">
                                                         {it.status==='booked'&&it.type==='income'&&<button onClick={()=>setModal({type:'confirm',data:it})} className="text-emerald-500"><Icons.Check size={16}/></button>}
@@ -364,9 +360,9 @@
                         {/* TAB: Customers */}
                         {tab === 'customers' && (
                             <div className="animate-fadeIn space-y-4">
-                                <div className="relative"><Icons.Search className="absolute left-3 top-2.5 text-rose-300" size={18}/><input type="text" placeholder="搜尋姓名或電話..." value={search} onChange={e=>setSearch(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-white border border-rose-200 rounded-xl outline-none focus:ring-2 focus:ring-rose-300"/></div>
+                                <div className="relative"><Icons.Search className="absolute left-3 top-2.5 text-rose-300" size={18}/><input type="text" placeholder="搜尋..." value={search} onChange={e=>setSearch(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-white border border-rose-200 rounded-xl outline-none focus:ring-2 focus:ring-rose-300"/></div>
                                 <div className="grid gap-4">
-                                    {customers.length === 0 ? <p className="text-center text-rose-300 py-10">找不到相符的資料</p> : customers.map((c, i) => (
+                                    {customers.map((c, i) => (
                                         <div key={i} className="bg-white rounded-2xl shadow-sm border border-rose-100 overflow-hidden">
                                             <div className="p-4 bg-[#f4e3e6] flex justify-between items-center">
                                                 <div className="flex items-center gap-3">
@@ -374,12 +370,7 @@
                                                     <div>
                                                         <div className="flex items-center gap-2">
                                                             <h3 className="font-bold text-[#8a4a58]">{c.name}</h3>
-                                                            {/* 聊天偏好標籤 */}
-                                                            {c.chatPref && c.chatPref !== 'either' && (
-                                                                <span className="text-[10px] bg-white/50 px-1 rounded flex items-center gap-0.5 text-rose-500">
-                                                                    {c.chatPref === 'chat' ? '🗣️' : '🤫'}
-                                                                </span>
-                                                            )}
+                                                            {c.chatPref !== 'either' && <span className="text-[10px] bg-white/50 px-1 rounded text-rose-500">{c.chatPref === 'chat' ? '🗣️' : '🤫'}</span>}
                                                         </div>
                                                         <span className="text-xs text-rose-400 flex items-center gap-1"><Icons.Phone size={10}/> {c.phone}</span>
                                                     </div>
@@ -414,7 +405,7 @@
                             </div>
                         )}
 
-                        {/* TAB: Finance */}
+                        {/* TAB: Finance (進階報表) */}
                         {tab === 'finance' && (
                             <div className="animate-fadeIn space-y-4">
                                 <div className="flex justify-between items-center bg-white p-3 rounded-2xl shadow-sm border border-rose-100">
@@ -422,27 +413,59 @@
                                     <div className="text-center"><p className="text-xs text-rose-400">財務報表</p><h2 className="text-lg font-bold text-[#8a4a58]">{date.getFullYear()} / {date.getMonth()+1}</h2></div>
                                     <button onClick={() => handleMonthChange(1)} className="p-2 text-rose-400"><Icons.Right/></button>
                                 </div>
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div className="bg-white p-4 rounded-2xl border-l-4 border-emerald-400 shadow-sm"><p className="text-xs text-gray-400">本月實收</p><p className="text-xl font-bold text-emerald-600">${stats.income.toLocaleString()}</p></div>
-                                    <div className="bg-white p-4 rounded-2xl border-l-4 border-rose-400 shadow-sm"><p className="text-xs text-gray-400">本月總支出</p><p className="text-xl font-bold text-rose-500">${stats.expense.toLocaleString()}</p></div>
+                                
+                                {/* 財務總覽卡片 */}
+                                <div className="bg-white rounded-2xl shadow-sm border border-rose-100 overflow-hidden">
+                                    <div className="p-4 bg-gradient-to-r from-[#bc6c7e] to-[#a85e6f] text-white">
+                                        <p className="text-xs opacity-80 mb-1">預計總收入 (含未收尾款)</p>
+                                        <p className="text-3xl font-bold">${stats.potential.toLocaleString()}</p>
+                                    </div>
+                                    <div className="grid grid-cols-2 divide-x divide-rose-50 border-b border-rose-50">
+                                        <div className="p-3 text-center">
+                                            <p className="text-xs text-gray-400 mb-1">已收金額 (現金流)</p>
+                                            <p className="text-lg font-bold text-emerald-600">${stats.collected.toLocaleString()}</p>
+                                        </div>
+                                        <div className="p-3 text-center">
+                                            <p className="text-xs text-gray-400 mb-1">應收未收 (尾款)</p>
+                                            <p className="text-lg font-bold text-blue-500">${stats.outstanding.toLocaleString()}</p>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 divide-x divide-rose-50">
+                                        <div className="p-3 text-center">
+                                            <p className="text-xs text-gray-400 mb-1">總支出</p>
+                                            <p className="text-lg font-bold text-rose-500">${stats.expense.toLocaleString()}</p>
+                                        </div>
+                                        <div className="p-3 text-center bg-rose-50/30">
+                                            <p className="text-xs text-gray-400 mb-1">淨現金流 (已收-支出)</p>
+                                            <p className="text-lg font-bold text-[#8a4a58]">${stats.balance.toLocaleString()}</p>
+                                        </div>
+                                    </div>
+                                    {stats.loss > 0 && (
+                                        <div className="p-2 bg-stone-100 text-center text-xs text-stone-500">
+                                            ⚠️ 本月因放鳥損失預期收入: <b>${stats.loss.toLocaleString()}</b>
+                                        </div>
+                                    )}
                                 </div>
-                                <div className="col-span-2 bg-[#bc6c7e] text-white p-4 rounded-2xl shadow-sm flex justify-between items-center"><span>本月淨利</span><span className="text-2xl font-bold">${stats.balance.toLocaleString()}</span></div>
+
                                 <div className="bg-white rounded-2xl shadow-sm border border-rose-100 p-2 space-y-2">
                                     {stats.list.map(l => (
                                         <div key={l.id} className="flex justify-between items-center p-2 border-b border-rose-50 last:border-0 text-sm">
-                                            <div className="flex gap-3 items-center"><span className="text-rose-300 w-10 text-xs">{l.date.slice(5)}</span><div><p className="font-bold text-gray-700">{l.type==='income'?l.name:l.expenseItem}</p></div></div>
+                                            <div className="flex gap-3 items-center">
+                                                <span className="text-rose-300 w-10 text-xs">{l.date.slice(5)}</span>
+                                                <div>
+                                                    <p className={`font-bold ${l.status==='noshow'?'text-stone-400 line-through':'text-gray-700'}`}>{l.type==='income'?l.name:l.expenseItem}</p>
+                                                    {l.status==='noshow' && <span className="text-[10px] bg-stone-100 text-stone-500 px-1 rounded">放鳥</span>}
+                                                </div>
+                                            </div>
                                             <div className="flex items-center gap-2">
-                                                <span className={`font-bold ${l.type==='income'?'text-emerald-600':'text-rose-500'}`}>{l.type==='income'?'+':'-'}${l.amount}</span>
+                                                <span className={`font-bold ${l.status==='noshow'?'text-stone-300':l.type==='income'?'text-emerald-600':'text-rose-500'}`}>
+                                                    {l.status==='noshow'?'':l.type==='income'?'+':'-'}${l.amount}
+                                                </span>
                                                 <button onClick={()=>openEdit(l)} className="text-rose-300"><Icons.Edit size={12}/></button>
                                                 <button onClick={()=>setModal({type:'delete',data:l})} className="text-rose-200"><Icons.Trash size={12}/></button>
                                             </div>
                                         </div>
                                     ))}
-                                    {/* 總計 */}
-                                    <div className="p-3 border-t-2 border-rose-100 flex justify-between items-center font-bold text-[#8a4a58] mt-2">
-                                        <span>本月總計</span>
-                                        <span className={stats.balance >= 0 ? 'text-emerald-600' : 'text-rose-500'}>${stats.balance.toLocaleString()}</span>
-                                    </div>
                                 </div>
                             </div>
                         )}
@@ -526,3 +549,5 @@
     </script>
 </body>
 </html>
+
+
