@@ -4,14 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>12 Beauty Studio</title>
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM (UMD) -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <style>
         body { -webkit-tap-highlight-color: transparent; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
         input, textarea, select { font-size: 16px !important; }
         ::-webkit-scrollbar { width: 0px; background: transparent; }
+        .suggestion-list { max-height: 150px; overflow-y: auto; }
     </style>
 </head>
 <body class="bg-[#fdf2f4] text-gray-700 selection:bg-rose-200">
@@ -20,7 +24,7 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
-        // --- 內建圖示庫 ---
+        // --- SVG 圖示組件 ---
         const Icon = ({ d, children, size = 24, className = "", ...props }) => (
             <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>{d ? <path d={d} /> : children}</svg>
         );
@@ -52,7 +56,8 @@
             Chat: (p) => <Icon {...p}><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></Icon>,
             Quiet: (p) => <Icon {...p}><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></Icon>,
             Smile: (p) => <Icon d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" {...p} />,
-            Database: (p) => <Icon d="M3 5V19A9 3 0 0 0 21 19V5" {...p}><path d="M3 5A9 3 0 0 1 21 5 9 3 0 0 1 3 5"/><path d="M21 12A9 3 0 0 1 3 12"/></Icon>
+            TrendingUp: (p) => <Icon d="m22 7-8.5 8.5-5-5L2 17" {...p}><path d="M16 7h6v6"/></Icon>,
+            Sparkles: (p) => <Icon d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" {...p} />
         };
 
         const THEME = {
@@ -76,19 +81,9 @@
             { id: 'either', label: '都可以', icon: Icons.Smile, color: 'text-emerald-500 bg-emerald-50 border-emerald-200' },
         ];
 
-        // 歷史資料庫 KEY (救援用)
-        const DB_KEYS = [
-            'beauty_studio_master_db', // 最新
-            'beauty_app_data_v7', 
-            'beauty_app_data_v6', 
-            'beauty_app_data_v5', 
-            'beauty_app_data_v4', 
-            'beauty_app_data_v3', 
-            'beauty_app_data_v2', 
-            'beauty_app_data'
-        ];
+        // 鎖定資料庫 KEY
+        const DB_KEYS = ['beauty_studio_master_db', 'beauty_app_data_v7', 'beauty_app_data_v6', 'beauty_app_data_v5', 'beauty_app_data_v4', 'beauty_app_data_v3', 'beauty_app_data_v2', 'beauty_app_data'];
 
-        // --- 小元件 ---
         const StatBadge = ({ icon: Icon, label, value, colorClass }) => (
             <div className={`flex flex-col items-center justify-center p-2 rounded-lg ${colorClass} bg-opacity-20 border border-opacity-10`}>
                 <div className="flex items-center gap-1 text-xs opacity-80 mb-1"><Icon size={12} /><span>{label}</span></div>
@@ -97,17 +92,13 @@
         );
 
         function App() {
-            // [資料讀取邏輯] 自動搜尋所有可能的舊資料庫
             const [records, setRecords] = useState(() => {
                 for (const key of DB_KEYS) {
                     try {
                         const raw = localStorage.getItem(key);
                         if (raw) {
                             const data = JSON.parse(raw);
-                            if (Array.isArray(data) && data.length > 0) {
-                                console.log(`已成功從 ${key} 恢復資料`);
-                                return data;
-                            }
+                            if (Array.isArray(data) && data.length > 0) return data;
                         }
                     } catch (e) {}
                 }
@@ -122,12 +113,32 @@
             const [selDate, setSelDate] = useState(null); 
             const [search, setSearch] = useState('');
             const fileRef = useRef(null);
+            
+            // --- 舊客搜尋相關狀態 ---
+            const [showSuggestions, setShowSuggestions] = useState(false);
+            const [filteredCustomers, setFilteredCustomers] = useState([]);
 
             useEffect(() => { setTimeout(() => setLoading(false), 300); }, []);
-            
-            // 存檔時統一存到 'beauty_studio_master_db'
-            useEffect(() => { 
-                localStorage.setItem('beauty_studio_master_db', JSON.stringify(records)); 
+            useEffect(() => { localStorage.setItem('beauty_studio_master_db', JSON.stringify(records)); }, [records]);
+
+            // [資料] 整理出唯一的客戶名單 (用於自動完成)
+            const uniqueCustomers = useMemo(() => {
+                const map = new Map();
+                records.forEach(r => {
+                    if (r.type === 'income' && (r.phone || r.name)) {
+                        // 使用電話作為主要 Key，若無電話則用名字
+                        const key = r.phone ? r.phone : r.name;
+                        // 我們希望保留最新的資訊，因為資料是依時間排序的，所以直接覆蓋即可 (假設 records 有按時間排序)
+                        // 若 records 亂序，可先 sort。這裡簡化直接 set
+                        map.set(key, { 
+                            name: r.name, 
+                            phone: r.phone, 
+                            chatPref: r.chatPref, 
+                            eyeShape: r.eyeShape // 帶入上次眼型備註
+                        });
+                    }
+                });
+                return Array.from(map.values());
             }, [records]);
 
             // [邏輯] 月曆
@@ -160,11 +171,9 @@
                             chatPref: 'either', lastVisit: ''
                         };
                     }
-                    
                     if (r.status === 'normal' || r.status === 'late') { map[key].visits++; map[key].total += Number(r.amount); }
                     if (r.status === 'late') map[key].late++;
                     if (r.status === 'noshow') map[key].noshow++;
-                    
                     if (r.chatPref && r.date >= map[key].lastVisit) {
                         map[key].chatPref = r.chatPref;
                         map[key].lastVisit = r.date;
@@ -180,43 +189,27 @@
             const stats = useMemo(() => {
                 const prefix = date.toISOString().slice(0, 7);
                 const monthRecs = records.filter(r => r.date.startsWith(prefix));
-                
-                let collected = 0;   
-                let outstanding = 0; 
-                let expense = 0;     
-                let loss = 0;        
-
+                let collected = 0, outstanding = 0, expense = 0, loss = 0;
                 monthRecs.forEach(r => {
                     const amt = Number(r.amount || 0);
-                    if (r.type === 'expense') {
-                        expense += amt;
-                    } else if (r.type === 'income') {
+                    if (r.type === 'expense') expense += amt;
+                    else if (r.type === 'income') {
                         const dep = Number(r.deposit || 0);
-                        if (r.status === 'normal' || r.status === 'late') {
-                            collected += amt; 
-                        } else if (r.status === 'booked') {
-                            collected += dep; 
-                            outstanding += (amt - dep); 
-                        } else if (r.status === 'noshow') {
-                            loss += amt; 
-                        }
+                        if (r.status === 'normal' || r.status === 'late') collected += amt;
+                        else if (r.status === 'booked') { collected += dep; outstanding += (amt - dep); }
+                        else if (r.status === 'noshow') loss += amt;
                     }
                 });
-
-                const potential = collected + outstanding; 
-                const balance = collected - expense; 
-
                 monthRecs.sort((a,b) => new Date(b.date) - new Date(a.date));
-                return { collected, outstanding, potential, expense, balance, loss, list: monthRecs };
+                return { collected, outstanding, potential: collected + outstanding, expense, balance: collected - expense, netIncome: collected - expense, loss, list: monthRecs };
             }, [records, date]);
 
-            // [操作]
+            // [操作] 儲存
             const handleSave = (e) => {
                 e.preventDefault();
                 const isEdit = modal.type === 'edit';
                 const amt = formData.amount === '' ? 0 : Number(formData.amount);
                 const dep = formData.deposit === '' ? 0 : Number(formData.deposit);
-
                 const docData = {
                     id: isEdit ? modal.data.id : Date.now().toString(),
                     type: formData.type,
@@ -233,12 +226,41 @@
                     expenseItem: formData.type === 'expense' ? (formData.expenseItem || '雜支') : '',
                     createdAt: new Date().toISOString()
                 };
-
                 setRecords(prev => isEdit ? prev.map(r => r.id === docData.id ? docData : r) : [...prev, docData]);
                 setModal({ type: null });
             };
 
-            const handleInput = (key, val) => setFormData(prev => ({ ...prev, [key]: val }));
+            // 輸入處理 (含自動完成觸發)
+            const handleInput = (key, val) => {
+                setFormData(prev => ({ ...prev, [key]: val }));
+                
+                // 如果輸入的是名字或電話，觸發搜尋
+                if (key === 'name' || key === 'phone') {
+                    if (val.trim().length > 0) {
+                        const term = val.toLowerCase();
+                        const matches = uniqueCustomers.filter(c => 
+                            (c.name && c.name.toLowerCase().includes(term)) || 
+                            (c.phone && c.phone.includes(term))
+                        ).slice(0, 5); // 最多顯示 5 筆
+                        setFilteredCustomers(matches);
+                        setShowSuggestions(matches.length > 0);
+                    } else {
+                        setShowSuggestions(false);
+                    }
+                }
+            };
+
+            // 選擇舊客
+            const selectCustomer = (c) => {
+                setFormData(prev => ({
+                    ...prev,
+                    name: c.name || '',
+                    phone: c.phone || '',
+                    chatPref: c.chatPref || 'either',
+                    eyeShape: c.eyeShape || '' // 自動帶入備註
+                }));
+                setShowSuggestions(false); // 關閉選單
+            };
 
             const openAdd = () => {
                 setFormData({
@@ -246,82 +268,30 @@
                     amount: '', deposit: '', name: '', phone: '', serviceItem: '', eyeShape: '',
                     status: 'booked', expenseItem: '', chatPref: 'either'
                 });
+                setShowSuggestions(false); // 重置建議
                 setModal({ type: 'add' });
             };
 
             const openEdit = (item) => {
                 setFormData({ ...item, chatPref: item.chatPref || 'either' });
+                setShowSuggestions(false);
                 setModal({ type: 'edit', data: item });
             };
 
-            const doDelete = () => {
-                setRecords(p => p.filter(r => r.id !== modal.data.id));
-                setModal({ type: null });
-            };
-
-            const doComplete = () => {
-                setRecords(p => p.map(r => r.id === modal.data.id ? { ...r, status: 'normal' } : r));
-                setModal({ type: null });
-            };
-
-            const handlePhoneBlur = () => {
-                if(formData.phone && formData.type === 'income'){
-                    const found = records.find(r => r.phone === formData.phone && r.chatPref);
-                    if(found){
-                        setFormData(prev => ({...prev, chatPref: found.chatPref || 'either', name: prev.name || found.name}));
-                    }
-                }
-            }
-
+            const doDelete = () => { setRecords(p => p.filter(r => r.id !== modal.data.id)); setModal({ type: null }); };
+            const doComplete = () => { setRecords(p => p.map(r => r.id === modal.data.id ? { ...r, status: 'normal' } : r)); setModal({ type: null }); };
+            
             const handleExport = () => {
                 const link = document.createElement('a');
                 link.href = URL.createObjectURL(new Blob([JSON.stringify(records, null, 2)], {type:'application/json'}));
                 link.download = `Backup_${new Date().toISOString().slice(0,10)}.json`;
                 link.click();
             };
-
             const handleImport = (e) => {
-                const f = e.target.files[0];
-                if (!f) return;
-                const reader = new FileReader();
-                reader.onload = (ev) => {
-                    try {
-                        const arr = JSON.parse(ev.target.result);
-                        if(Array.isArray(arr) && confirm(`確定匯入 ${arr.length} 筆資料嗎？`)){
-                            const ids = new Set(records.map(r => r.id));
-                            const newRecs = [...records];
-                            arr.forEach(item => { if(!ids.has(item.id)) newRecs.push(item); });
-                            setRecords(newRecs);
-                            alert("匯入成功！");
-                            setModal({type:null});
-                        }
-                    } catch { alert("讀取失敗"); }
-                };
-                reader.readAsText(f);
-                e.target.value = '';
+                const f = e.target.files[0]; if (!f) return;
+                const r = new FileReader(); r.onload = (ev) => { try { const a = JSON.parse(ev.target.result); if(Array.isArray(a) && confirm(`匯入 ${a.length} 筆資料？`)) { const ids = new Set(records.map(x=>x.id)); const n = [...records]; a.forEach(x=>{if(!ids.has(x.id))n.push(x)}); setRecords(n); alert("成功"); setModal({type:null}); } } catch{ alert("失敗"); } }; r.readAsText(f); e.target.value='';
             };
-
-            // 手動救援功能
-            const manualRescue = (key) => {
-                try {
-                    const raw = localStorage.getItem(key);
-                    if(raw) {
-                        const data = JSON.parse(raw);
-                        if(Array.isArray(data) && confirm(`確定從 [${key}] 還原 ${data.length} 筆資料嗎？目前的資料將被覆蓋。`)) {
-                            setRecords(data);
-                            alert("還原成功！");
-                            setModal({type:null});
-                        }
-                    } else {
-                        alert("該版本沒有資料");
-                    }
-                } catch(e) { alert("讀取錯誤"); }
-            };
-
-            const handleMonthChange = (dir) => {
-                const d = new Date(date); d.setMonth(d.getMonth() + dir);
-                setDate(d); setSelDate(null);
-            };
+            const handleMonthChange = (d) => { const x = new Date(date); x.setMonth(x.getMonth() + d); setDate(x); setSelDate(null); };
 
             if (loading) return <div className="h-screen flex items-center justify-center text-rose-300 font-bold"><Icons.Loader className="animate-spin mr-2"/> 載入中...</div>;
 
@@ -452,53 +422,30 @@
                                     <div className="text-center"><p className="text-xs text-rose-400">財務報表</p><h2 className="text-lg font-bold text-[#8a4a58]">{date.getFullYear()} / {date.getMonth()+1}</h2></div>
                                     <button onClick={() => handleMonthChange(1)} className="p-2 text-rose-400"><Icons.Right/></button>
                                 </div>
-                                
                                 <div className="bg-white rounded-2xl shadow-sm border border-rose-100 overflow-hidden">
                                     <div className="p-4 bg-gradient-to-r from-[#bc6c7e] to-[#a85e6f] text-white">
-                                        <p className="text-xs opacity-80 mb-1">預計總收入 (含未收尾款)</p>
-                                        <p className="text-3xl font-bold">${stats.potential.toLocaleString()}</p>
+                                        <div className="flex items-center gap-2 mb-1 opacity-90"><Icons.TrendingUp size={16} /><span className="text-xs font-bold tracking-wider">本月淨收入 (實收-支出)</span></div>
+                                        <p className="text-3xl font-bold tracking-tight">${stats.netIncome.toLocaleString()}</p>
                                     </div>
                                     <div className="grid grid-cols-2 divide-x divide-rose-50 border-b border-rose-50">
-                                        <div className="p-3 text-center">
-                                            <p className="text-xs text-gray-400 mb-1">已收金額 (現金流)</p>
-                                            <p className="text-lg font-bold text-emerald-600">${stats.collected.toLocaleString()}</p>
-                                        </div>
-                                        <div className="p-3 text-center">
-                                            <p className="text-xs text-gray-400 mb-1">應收未收 (尾款)</p>
-                                            <p className="text-lg font-bold text-blue-500">${stats.outstanding.toLocaleString()}</p>
-                                        </div>
+                                        <div className="p-3 text-center"><p className="text-xs text-gray-400 mb-1">已收金額 (現金流)</p><p className="text-lg font-bold text-emerald-600">${stats.collected.toLocaleString()}</p></div>
+                                        <div className="p-3 text-center"><p className="text-xs text-gray-400 mb-1">總支出</p><p className="text-lg font-bold text-rose-500">${stats.expense.toLocaleString()}</p></div>
                                     </div>
                                     <div className="grid grid-cols-2 divide-x divide-rose-50">
-                                        <div className="p-3 text-center">
-                                            <p className="text-xs text-gray-400 mb-1">總支出</p>
-                                            <p className="text-lg font-bold text-rose-500">${stats.expense.toLocaleString()}</p>
-                                        </div>
-                                        <div className="p-3 text-center bg-rose-50/30">
-                                            <p className="text-xs text-gray-400 mb-1">淨現金流 (已收-支出)</p>
-                                            <p className="text-lg font-bold text-[#8a4a58]">${stats.balance.toLocaleString()}</p>
-                                        </div>
+                                        <div className="p-3 text-center bg-rose-50/20"><p className="text-xs text-gray-400 mb-1">預計總收 (含未收)</p><p className="text-base font-bold text-gray-700">${stats.potential.toLocaleString()}</p></div>
+                                        <div className="p-3 text-center bg-rose-50/20"><p className="text-xs text-gray-400 mb-1">未收尾款</p><p className="text-base font-bold text-blue-500">${stats.outstanding.toLocaleString()}</p></div>
                                     </div>
-                                    {stats.loss > 0 && (
-                                        <div className="p-2 bg-stone-100 text-center text-xs text-stone-500">
-                                            ⚠️ 本月因放鳥損失預期收入: <b>${stats.loss.toLocaleString()}</b>
-                                        </div>
-                                    )}
+                                    {stats.loss > 0 && <div className="p-2 bg-stone-100 text-center text-xs text-stone-500">⚠️ 本月放鳥損失: <b>${stats.loss.toLocaleString()}</b></div>}
                                 </div>
-
                                 <div className="bg-white rounded-2xl shadow-sm border border-rose-100 p-2 space-y-2">
                                     {stats.list.map(l => (
                                         <div key={l.id} className="flex justify-between items-center p-2 border-b border-rose-50 last:border-0 text-sm">
                                             <div className="flex gap-3 items-center">
                                                 <span className="text-rose-300 w-10 text-xs">{l.date.slice(5)}</span>
-                                                <div>
-                                                    <p className={`font-bold ${l.status==='noshow'?'text-stone-400 line-through':'text-gray-700'}`}>{l.type==='income'?l.name:l.expenseItem}</p>
-                                                    {l.status==='noshow' && <span className="text-[10px] bg-stone-100 text-stone-500 px-1 rounded">放鳥</span>}
-                                                </div>
+                                                <div><p className={`font-bold ${l.status==='noshow'?'text-stone-400 line-through':'text-gray-700'}`}>{l.type==='income'?l.name:l.expenseItem}</p>{l.status==='noshow' && <span className="text-[10px] bg-stone-100 text-stone-500 px-1 rounded">放鳥</span>}</div>
                                             </div>
                                             <div className="flex items-center gap-2">
-                                                <span className={`font-bold ${l.status==='noshow'?'text-stone-300':l.type==='income'?'text-emerald-600':'text-rose-500'}`}>
-                                                    {l.status==='noshow'?'':l.type==='income'?'+':'-'}${l.amount}
-                                                </span>
+                                                <span className={`font-bold ${l.status==='noshow'?'text-stone-300':l.type==='income'?'text-emerald-600':'text-rose-500'}`}>{l.status==='noshow'?'':l.type==='income'?'+':'-'}${l.amount}</span>
                                                 <button onClick={()=>openEdit(l)} className="text-rose-300"><Icons.Edit size={12}/></button>
                                                 <button onClick={()=>setModal({type:'delete',data:l})} className="text-rose-200"><Icons.Trash size={12}/></button>
                                             </div>
@@ -533,34 +480,36 @@
                                         {formData.type === 'income' && <div className="flex-1"><label className="text-xs font-bold text-gray-400">時間</label><input type="time" value={formData.time} onChange={e => handleInput('time', e.target.value)} className="w-full p-2 border border-rose-200 rounded-lg bg-white"/></div>}
                                     </div>
 
-                                    {/* 金額欄位 (統一使用 tel 鍵盤防止清空) */}
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-400">{formData.type==='income'?'總金額 (含訂)':'支出金額'}</label>
-                                        <input type="tel" inputMode="decimal" pattern="[0-9]*" value={formData.amount} onChange={e => handleInput('amount', e.target.value)} placeholder="0" className="w-full p-2 border border-rose-200 rounded-lg text-lg font-bold bg-white text-gray-700"/>
-                                    </div>
+                                    <div><label className="text-xs font-bold text-gray-400">{formData.type==='income'?'總金額 (含訂)':'支出金額'}</label><input type="tel" inputMode="decimal" pattern="[0-9]*" value={formData.amount} onChange={e => handleInput('amount', e.target.value)} placeholder="0" className="w-full p-2 border border-rose-200 rounded-lg text-lg font-bold bg-white text-gray-700"/></div>
 
                                     {formData.type === 'income' ? (
                                         <>
-                                            <div className="flex gap-4">
-                                                <div className="flex-1"><label className="text-xs font-bold text-gray-400">姓名</label><input required value={formData.name} onChange={e => handleInput('name', e.target.value)} placeholder="王小美" className="w-full p-2 border border-rose-200 rounded-lg bg-white"/></div>
-                                                <div className="flex-1"><label className="text-xs font-bold text-gray-400">電話</label><input type="tel" inputMode="numeric" value={formData.phone} onChange={e => handleInput('phone', e.target.value)} onBlur={handlePhoneBlur} placeholder="09..." className="w-full p-2 border border-rose-200 rounded-lg bg-white"/></div>
+                                            <div className="flex gap-4 relative">
+                                                <div className="flex-1">
+                                                    <label className="text-xs font-bold text-gray-400">姓名</label>
+                                                    <input required value={formData.name} onChange={e => handleInput('name', e.target.value)} placeholder="王小美" className="w-full p-2 border border-rose-200 rounded-lg bg-white" autoComplete="off"/>
+                                                    
+                                                    {/* [新功能] 智慧舊客建議選單 */}
+                                                    {showSuggestions && filteredCustomers.length > 0 && (
+                                                        <ul className="absolute z-50 left-0 right-0 bg-white border border-rose-100 rounded-lg shadow-lg mt-1 suggestion-list">
+                                                            <li className="p-2 text-xs text-rose-300 font-bold bg-rose-50">✨ 點擊帶入舊客資料</li>
+                                                            {filteredCustomers.map((c, i) => (
+                                                                <li key={i} onClick={() => selectCustomer(c)} className="p-2 hover:bg-rose-50 cursor-pointer border-b border-gray-50 flex justify-between items-center">
+                                                                    <div>
+                                                                        <span className="font-bold text-[#8a4a58]">{c.name}</span>
+                                                                        <span className="text-xs text-gray-400 ml-2">{c.phone}</span>
+                                                                    </div>
+                                                                    <Icons.Sparkles size={14} className="text-rose-300"/>
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                    )}
+                                                </div>
+                                                <div className="flex-1"><label className="text-xs font-bold text-gray-400">電話</label><input type="tel" inputMode="numeric" value={formData.phone} onChange={e => handleInput('phone', e.target.value)} onBlur={handlePhoneBlur} placeholder="09..." className="w-full p-2 border border-rose-200 rounded-lg bg-white" autoComplete="off"/></div>
                                             </div>
                                             <div className="bg-orange-50 p-3 rounded-xl border border-orange-100"><label className="text-xs font-bold text-orange-600 flex gap-1 items-center"><Icons.Coins size={12}/> 訂金 (已收)</label><input type="tel" inputMode="decimal" value={formData.deposit} onChange={e => handleInput('deposit', e.target.value)} placeholder="0" className="w-full p-2 mt-1 border border-orange-200 rounded-lg bg-white"/></div>
                                             
-                                            {/* 聊天偏好 */}
-                                            <div>
-                                                <label className="text-xs font-bold text-gray-400">服務偏好</label>
-                                                <div className="grid grid-cols-3 gap-2 mt-1">
-                                                    {CHAT_PREFS.map(p => (
-                                                        <button key={p.id} type="button" onClick={() => handleInput('chatPref', p.id)} 
-                                                            className={`py-2 px-1 rounded-lg border text-[10px] font-bold flex flex-col items-center justify-center gap-1 transition-all
-                                                            ${formData.chatPref === p.id ? p.color + ' ring-2 ring-offset-1' : 'border-rose-100 text-gray-400 bg-white'}`}>
-                                                            {p.icon({size:16})} {p.label}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            </div>
-
+                                            <div><label className="text-xs font-bold text-gray-400">服務偏好</label><div className="grid grid-cols-3 gap-2 mt-1">{CHAT_PREFS.map(p => (<button key={p.id} type="button" onClick={() => handleInput('chatPref', p.id)} className={`py-2 px-1 rounded-lg border text-[10px] font-bold flex flex-col items-center justify-center gap-1 transition-all ${formData.chatPref === p.id ? p.color + ' ring-2 ring-offset-1' : 'border-rose-100 text-gray-400 bg-white'}`}>{p.icon({size:16})} {p.label}</button>))}</div></div>
                                             <div><label className="text-xs font-bold text-gray-400">狀態</label><div className="grid grid-cols-2 gap-2 mt-1">{STATUS.map(s => <button key={s.id} type="button" onClick={() => handleInput('status', s.id)} className={`py-2 px-1 rounded-lg border text-xs font-bold flex items-center justify-center gap-1 transition-all ${formData.status === s.id ? `border-transparent ${s.color} ring-2 ring-offset-1 ring-rose-200 shadow-sm` : 'border-rose-100 text-gray-400 bg-white hover:bg-rose-50'}`}>{s.icon({size:12})} {s.label}</button>)}</div></div>
                                             <div><label className="text-xs font-bold text-gray-400">項目</label><input value={formData.serviceItem} onChange={e => handleInput('serviceItem', e.target.value)} placeholder="山茶花 400根" className="w-full p-2 border border-rose-200 rounded-lg bg-white"/></div>
                                             <div><label className="text-xs font-bold text-gray-400">備註/眼型</label><textarea value={formData.eyeShape} onChange={e => handleInput('eyeShape', e.target.value)} rows="2" className="w-full p-2 border border-rose-200 rounded-lg bg-white resize-none"/></div>
@@ -574,8 +523,8 @@
                         </div>
                     )}
 
-                    {/* Settings Modal (含資料救援) */}
-                    {modal.type === 'settings' && <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-6 backdrop-blur-sm animate-fadeIn"><div className="bg-white w-full max-w-xs rounded-2xl shadow-xl p-6 space-y-4"><h3 className="font-bold text-lg text-[#8a4a58] flex items-center gap-2"><Icons.Settings size={20}/> 資料設定</h3><button onClick={handleExport} className="w-full py-3 bg-rose-50 text-rose-600 rounded-xl font-bold flex items-center justify-center gap-2"><Icons.Download size={18}/> 匯出備份</button><div className="relative"><input type="file" onChange={handleImport} className="hidden" ref={fileRef} accept=".json"/><button onClick={()=>fileRef.current.click()} className="w-full py-3 bg-gray-50 text-gray-600 rounded-xl font-bold flex items-center justify-center gap-2"><Icons.Upload size={18}/> 匯入資料</button></div><hr className="border-rose-100"/><div className="text-xs text-center text-gray-400">🛠️ 舊資料手動還原 (慎用)</div><div className="grid grid-cols-2 gap-2">{DB_KEYS.map(k => <button key={k} onClick={()=>manualRescue(k)} className="text-[10px] bg-stone-50 border border-stone-100 py-1 rounded text-stone-500 truncate">{k.replace('beauty_app_data_', '')}</button>)}</div><button onClick={()=>setModal({type:null})} className="w-full py-3 text-gray-400">關閉</button></div></div>}
+                    {/* Settings / Confirm / Delete Modals */}
+                    {modal.type === 'settings' && <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-6 backdrop-blur-sm animate-fadeIn"><div className="bg-white w-full max-w-xs rounded-2xl shadow-xl p-6 space-y-4"><h3 className="font-bold text-lg text-[#8a4a58] flex items-center gap-2"><Icons.Settings size={20}/> 資料設定</h3><button onClick={handleExport} className="w-full py-3 bg-rose-50 text-rose-600 rounded-xl font-bold flex items-center justify-center gap-2"><Icons.Download size={18}/> 匯出備份</button><div className="relative"><input type="file" onChange={handleImport} className="hidden" ref={fileRef} accept=".json"/><button onClick={()=>fileRef.current.click()} className="w-full py-3 bg-gray-50 text-gray-600 rounded-xl font-bold flex items-center justify-center gap-2"><Icons.Upload size={18}/> 匯入資料</button></div><button onClick={()=>setModal({type:null})} className="w-full py-3 text-gray-400">關閉</button></div></div>}
                     {modal.type === 'confirm' && <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-6 backdrop-blur-sm animate-fadeIn"><div className="bg-white w-full max-w-xs rounded-2xl shadow-xl overflow-hidden text-center"><div className="bg-emerald-500 p-4 text-white"><Icons.Check size={40} className="mx-auto mb-2 opacity-90"/><h3 className="font-bold">確認完工收款？</h3></div><div className="p-6"><p className="text-xl font-bold text-gray-800">{modal.data.name}</p><p className="text-2xl font-bold text-emerald-600 mt-2">${modal.data.amount}</p></div><div className="flex border-t"><button onClick={()=>setModal({type:null})} className="flex-1 py-3 text-gray-500">取消</button><button onClick={doComplete} className="flex-1 py-3 bg-emerald-50 text-emerald-600 font-bold border-l">確定</button></div></div></div>}
                     {modal.type === 'delete' && <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-6 backdrop-blur-sm animate-fadeIn"><div className="bg-white w-full max-w-xs rounded-2xl shadow-xl overflow-hidden text-center"><div className="bg-rose-400 p-4 text-white"><Icons.Warn size={40} className="mx-auto mb-2 opacity-90"/><h3 className="font-bold">確定刪除？</h3></div><div className="p-6"><p className="text-lg font-bold">{modal.data.name||modal.data.expenseItem}</p><p className="text-sm text-gray-400 mt-1">刪除後無法復原</p></div><div className="flex border-t"><button onClick={()=>setModal({type:null})} className="flex-1 py-3 text-gray-500">取消</button><button onClick={doDelete} className="flex-1 py-3 bg-rose-50 text-rose-500 font-bold border-l">刪除</button></div></div></div>}
                 </div>
@@ -587,5 +536,3 @@
     </script>
 </body>
 </html>
-
-
